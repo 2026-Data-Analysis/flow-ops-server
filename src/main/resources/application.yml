@@ -38,7 +38,6 @@ jasypt:
     salt-generator-classname: ${JASYPT_ENCRYPTOR_SALT_GENERATOR_CLASSNAME:org.jasypt.salt.RandomSaltGenerator}
     iv-generator-classname: ${JASYPT_ENCRYPTOR_IV_GENERATOR_CLASSNAME:org.jasypt.iv.RandomIvGenerator}
     string-output-type: ${JASYPT_ENCRYPTOR_STRING_OUTPUT_TYPE:base64}
-    proxy-property-sources: ${JASYPT_ENCRYPTOR_PROXY_PROPERTY_SOURCES:true}
 
 logging:
   level:
