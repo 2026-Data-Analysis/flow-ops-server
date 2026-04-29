@@ -18,8 +18,7 @@ spring:
       matching-strategy: ant_path_matcher
 
 server:
-  port: ${PORT:${SERVER_PORT:8080}}
-  forward-headers-strategy: framework
+  port: ${PORT:8080}
 
 management:
   endpoints:
