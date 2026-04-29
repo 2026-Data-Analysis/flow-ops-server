@@ -9,7 +9,3 @@ spring:
       minimum-idle: ${DB_POOL_MIN_IDLE:1}
       connection-timeout: ${DB_CONNECTION_TIMEOUT_MILLIS:10000}
       validation-timeout: ${DB_VALIDATION_TIMEOUT_MILLIS:5000}
-
-jasypt:
-  encryptor:
-    password: ${JASYPT_ENCRYPTOR_PASSWORD}

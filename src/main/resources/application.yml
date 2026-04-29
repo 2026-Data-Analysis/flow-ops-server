@@ -33,10 +33,13 @@ management:
 
 jasypt:
   encryptor:
+    password: ${JASYPT_ENCRYPTOR_PASSWORD:}
     algorithm: ${JASYPT_ENCRYPTOR_ALGORITHM:PBEWITHHMACSHA512ANDAES_256}
     key-obtention-iterations: ${JASYPT_ENCRYPTOR_KEY_OBTENTION_ITERATIONS:1000}
+    salt-generator-classname: ${JASYPT_ENCRYPTOR_SALT_GENERATOR_CLASSNAME:org.jasypt.salt.RandomSaltGenerator}
     iv-generator-classname: ${JASYPT_ENCRYPTOR_IV_GENERATOR_CLASSNAME:org.jasypt.iv.RandomIvGenerator}
     string-output-type: ${JASYPT_ENCRYPTOR_STRING_OUTPUT_TYPE:base64}
+    proxy-property-sources: ${JASYPT_ENCRYPTOR_PROXY_PROPERTY_SOURCES:true}
 
 logging:
   level:
