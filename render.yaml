@@ -18,6 +18,16 @@ services:
         value: prod
       - key: JASYPT_ENCRYPTOR_PASSWORD
         sync: false
+      - key: JASYPT_ENCRYPTOR_ALGORITHM
+        value: "PBEWITHHMACSHA512ANDAES_256"
+      - key: JASYPT_ENCRYPTOR_KEY_OBTENTION_ITERATIONS
+        value: "1000"
+      - key: JASYPT_ENCRYPTOR_SALT_GENERATOR_CLASSNAME
+        value: "org.jasypt.salt.RandomSaltGenerator"
+      - key: JASYPT_ENCRYPTOR_IV_GENERATOR_CLASSNAME
+        value: "org.jasypt.iv.RandomIvGenerator"
+      - key: JASYPT_ENCRYPTOR_STRING_OUTPUT_TYPE
+        value: "base64"
       - key: DB_POOL_MAX_SIZE
         value: "3"
       - key: GITHUB_MOCK_ENABLED

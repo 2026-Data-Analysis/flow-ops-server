@@ -6,10 +6,11 @@ import org.jasypt.iv.IvGenerator;
 import org.jasypt.iv.NoIvGenerator;
 import org.jasypt.iv.RandomIvGenerator;
 import org.jasypt.salt.RandomSaltGenerator;
+import org.jasypt.salt.SaltGenerator;
 
 public class JasyptTool {
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         if (args.length < 2) {
             throw new IllegalArgumentException("사용법: encrypt <평문> 또는 decrypt <암호문>");
         }
@@ -28,13 +29,17 @@ public class JasyptTool {
                 "JASYPT_ENCRYPTOR_IV_GENERATOR_CLASSNAME",
                 "org.jasypt.iv.RandomIvGenerator"
         );
+        String saltGeneratorClassName = System.getenv().getOrDefault(
+                "JASYPT_ENCRYPTOR_SALT_GENERATOR_CLASSNAME",
+                "org.jasypt.salt.RandomSaltGenerator"
+        );
 
         StandardPBEStringEncryptor encryptor = new StandardPBEStringEncryptor();
         encryptor.setPassword(password);
         encryptor.setAlgorithm(algorithm);
         encryptor.setKeyObtentionIterations(iterations);
         encryptor.setStringOutputType(outputType);
-        encryptor.setSaltGenerator(new RandomSaltGenerator());
+        encryptor.setSaltGenerator(createSaltGenerator(saltGeneratorClassName));
         encryptor.setIvGenerator(createIvGenerator(ivGeneratorClassName));
 
         String mode = args[0];
@@ -60,6 +65,13 @@ public class JasyptTool {
             case "org.jasypt.iv.NoIvGenerator" -> new NoIvGenerator();
             case "org.jasypt.iv.RandomIvGenerator" -> new RandomIvGenerator();
             default -> throw new IllegalArgumentException("지원하지 않는 IV 생성기입니다: " + className);
+        };
+    }
+
+    private static SaltGenerator createSaltGenerator(String className) {
+        return switch (className) {
+            case "org.jasypt.salt.RandomSaltGenerator" -> new RandomSaltGenerator();
+            default -> throw new IllegalArgumentException("지원하지 않는 Salt 생성기입니다: " + className);
         };
     }
 }
