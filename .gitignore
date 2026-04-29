@@ -1,5 +1,6 @@
 HELP.md
 .gradle
+.gradle-user-home/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -35,3 +36,11 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Env files ###
+.env
+.env.*
+!.env.render.example
+
+### Local Spring profiles ###
+src/main/resources/application-local.yml

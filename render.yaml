@@ -1,0 +1,24 @@
+previews:
+  generation: off
+
+services:
+  - type: web
+    name: flowops-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: APP_ALLOWED_ORIGINS
+        sync: false
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: JASYPT_ENCRYPTOR_PASSWORD
+        sync: false
+      - key: DB_POOL_MAX_SIZE
+        value: "3"
+      - key: GITHUB_MOCK_ENABLED
+        value: "false"

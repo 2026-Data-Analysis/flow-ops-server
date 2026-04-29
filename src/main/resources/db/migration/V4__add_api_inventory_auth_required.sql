@@ -1,0 +1,2 @@
+ALTER TABLE api_inventories
+    ADD COLUMN auth_required BOOLEAN NOT NULL DEFAULT FALSE;
