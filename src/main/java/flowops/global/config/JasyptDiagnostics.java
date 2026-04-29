@@ -19,7 +19,7 @@ public class JasyptDiagnostics implements InitializingBean {
 
     public JasyptDiagnostics(
             StringEncryptor encryptor,
-            @Value("${spring.datasource.password}") String datasourcePassword,
+            @Value("${app.encrypted-datasource.password:}") String datasourcePassword,
             @Value("${jasypt.encryptor.password:}") String encryptorPassword
     ) {
         this.encryptor = encryptor;

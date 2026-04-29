@@ -1,5 +1,5 @@
-spring:
-  datasource:
+app:
+  encrypted-datasource:
     url: ENC(4dgeL+CKfuW7m6Y2j79fTjYjMo5bUeQnN/rHjl/Md5vGDbl4rwiQJbve4GVebUeBlQrHGdbuBeejnQzCC4AZJ2lO3rI3JRqG15PBZpeyIrfljDvte6W61CHiaT4vckN7K3Yx8EYJdD9jPCjIiJgku1kwQDAqdlhUXrrjV6QN6MQAkKqr4nF/p9EXWFm2aAjA)
     username: ENC(BN1/stcfu4YQI3fALYDeI2Odw3btzRdF)
     password: ENC(Uxnmazg7CBkK0NNJgvM1DWhEp8XajOSUsVcyAhNJlFY=)
