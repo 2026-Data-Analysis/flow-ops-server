@@ -28,6 +28,7 @@ public class GithubApiClient implements GithubClient {
 
     private final WebClient githubWebClient;
     private final ExternalServiceProperties properties;
+    private final Duration readTimeout;
 
     public GithubApiClient(
             @Qualifier("githubApiWebClient") WebClient githubWebClient,
@@ -35,6 +36,7 @@ public class GithubApiClient implements GithubClient {
     ) {
         this.githubWebClient = githubWebClient;
         this.properties = properties;
+        this.readTimeout = Duration.ofMillis(properties.github().readTimeoutMillis());
     }
 
     @Override
@@ -61,7 +63,7 @@ public class GithubApiClient implements GithubClient {
                         payload.htmlUrl(),
                         payload.defaultBranch()
                 ))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(readTimeout)
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("저장소 조회", owner, repositoryName, ex))
                 .block();
@@ -81,7 +83,7 @@ public class GithubApiClient implements GithubClient {
                         .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
                 .bodyToFlux(GithubBranchPayload.class)
                 .collectList()
-                .timeout(Duration.ofSeconds(5))
+                .timeout(readTimeout)
                 .onErrorResume(ex -> ex instanceof ApiException
                         ? Mono.error(ex)
                         : Mono.error(githubRequestException("브랜치 조회", owner, repositoryName, ex)))
@@ -139,7 +141,7 @@ public class GithubApiClient implements GithubClient {
                         .defaultIfEmpty("GitHub 파일 트리 조회에 실패했습니다.")
                         .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
                 .bodyToMono(GithubTreePayload.class)
-                .timeout(Duration.ofSeconds(10))
+                .timeout(readTimeout)
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("파일 트리 조회", owner, repositoryName, ex))
                 .block();
@@ -162,7 +164,7 @@ public class GithubApiClient implements GithubClient {
                         .defaultIfEmpty("GitHub 파일 조회에 실패했습니다.")
                         .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
                 .bodyToMono(GithubContentPayload.class)
-                .timeout(Duration.ofSeconds(10))
+                .timeout(readTimeout)
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("파일 조회", owner, repositoryName, ex))
                 .block();

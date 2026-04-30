@@ -11,7 +11,9 @@ public record ExternalServiceProperties(
     public record Github(
             String apiUrl,
             String token,
-            boolean mockEnabled
+            boolean mockEnabled,
+            int connectTimeoutMillis,
+            int readTimeoutMillis
     ) {
     }
 

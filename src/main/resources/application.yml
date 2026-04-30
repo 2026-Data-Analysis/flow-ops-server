@@ -52,6 +52,8 @@ external:
     api-url: ${GITHUB_API_URL:https://api.github.com}
     token: ${GITHUB_TOKEN:}
     mock-enabled: ${GITHUB_MOCK_ENABLED:false}
+    connect-timeout-millis: ${GITHUB_CONNECT_TIMEOUT_MILLIS:5000}
+    read-timeout-millis: ${GITHUB_READ_TIMEOUT_MILLIS:20000}
   ai:
     base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
     api-key: ${AI_SERVER_API_KEY:}

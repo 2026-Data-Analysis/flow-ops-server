@@ -21,16 +21,24 @@ public class WebClientConfig {
     @Bean
     @Qualifier("githubApiWebClient")
     public WebClient githubApiWebClient(WebClient.Builder builder, ExternalServiceProperties properties) {
+        ExternalServiceProperties.Github github = properties.github();
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, github.connectTimeoutMillis())
+                .doOnConnected(connection -> connection.addHandlerLast(
+                        new ReadTimeoutHandler(github.readTimeoutMillis(), TimeUnit.MILLISECONDS)
+                ));
+
         return builder
-                .baseUrl(properties.github().apiUrl())
+                .baseUrl(github.apiUrl())
                 .defaultHeaders(headers -> {
                     headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
                     headers.set(HttpHeaders.USER_AGENT, "flowops-backend");
                     headers.set("X-GitHub-Api-Version", "2022-11-28");
-                    if (properties.github().token() != null && !properties.github().token().isBlank()) {
-                        headers.setBearerAuth(properties.github().token());
+                    if (github.token() != null && !github.token().isBlank()) {
+                        headers.setBearerAuth(github.token());
                     }
                 })
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
     }
 

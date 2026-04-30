@@ -9,3 +9,9 @@ spring:
       minimum-idle: ${DB_POOL_MIN_IDLE:1}
       connection-timeout: ${DB_CONNECTION_TIMEOUT_MILLIS:10000}
       validation-timeout: ${DB_VALIDATION_TIMEOUT_MILLIS:5000}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
