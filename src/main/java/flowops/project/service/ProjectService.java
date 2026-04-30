@@ -7,6 +7,7 @@ import flowops.project.domain.entity.ProjectStatus;
 import flowops.project.dto.request.CreateProjectRequest;
 import flowops.project.dto.response.ProjectResponse;
 import flowops.project.repository.ProjectRepository;
+import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,13 @@ public class ProjectService {
                 .build());
 
         return ProjectResponse.from(project);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProjectResponse> listProjects() {
+        return projectRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(ProjectResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
