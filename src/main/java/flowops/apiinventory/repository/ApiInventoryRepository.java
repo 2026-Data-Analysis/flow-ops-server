@@ -26,15 +26,32 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
               and (:branchName is null or inventory.branchName = :branchName)
               and (:method is null or inventory.method = :method)
               and (:sourceType is null or inventory.sourceType = :sourceType)
+            order by inventory.id desc
+            """)
+    List<ApiInventory> findByFilters(
+            @Param("projectId") Long projectId,
+            @Param("repositoryId") Long repositoryId,
+            @Param("branchName") String branchName,
+            @Param("method") ApiHttpMethod method,
+            @Param("sourceType") ApiInventorySource sourceType
+    );
+
+    @Query("""
+            select inventory
+            from ApiInventory inventory
+            where inventory.project.id = :projectId
+              and (:repositoryId is null or inventory.repositoryInfo.id = :repositoryId)
+              and (:branchName is null or inventory.branchName = :branchName)
+              and (:method is null or inventory.method = :method)
+              and (:sourceType is null or inventory.sourceType = :sourceType)
               and (
-                    :keyword is null
-                    or lower(inventory.endpointPath) like lower(concat('%', :keyword, '%'))
+                    lower(inventory.endpointPath) like lower(concat('%', :keyword, '%'))
                     or lower(coalesce(inventory.operationId, '')) like lower(concat('%', :keyword, '%'))
                     or lower(coalesce(inventory.summary, '')) like lower(concat('%', :keyword, '%'))
               )
             order by inventory.id desc
             """)
-    List<ApiInventory> findByFilters(
+    List<ApiInventory> findByFiltersAndKeyword(
             @Param("projectId") Long projectId,
             @Param("repositoryId") Long repositoryId,
             @Param("branchName") String branchName,

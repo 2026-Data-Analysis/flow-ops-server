@@ -91,14 +91,23 @@ public class ApiInventoryService {
             effectiveBranchName = repositoryInfo.getDefaultBranch();
         }
 
-        List<ApiInventory> inventories = apiInventoryRepository.findByFilters(
-                projectId,
-                repositoryId,
-                blankToNull(effectiveBranchName),
-                method,
-                sourceType,
-                blankToNull(keyword)
-        ).stream()
+        String normalizedKeyword = blankToNull(keyword);
+        List<ApiInventory> inventories = (normalizedKeyword == null
+                ? apiInventoryRepository.findByFilters(
+                        projectId,
+                        repositoryId,
+                        blankToNull(effectiveBranchName),
+                        method,
+                        sourceType
+                )
+                : apiInventoryRepository.findByFiltersAndKeyword(
+                        projectId,
+                        repositoryId,
+                        blankToNull(effectiveBranchName),
+                        method,
+                        sourceType,
+                        normalizedKeyword
+                )).stream()
                 .filter(inventory -> matchesDomainTag(inventory, domainTag))
                 .filter(inventory -> matchesTestLevel(inventory, testLevel))
                 .toList();
