@@ -1,6 +1,8 @@
 spring:
   application:
     name: flowops
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   jpa:
     hibernate:
       ddl-auto: validate

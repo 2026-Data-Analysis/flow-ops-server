@@ -24,6 +24,8 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class GithubService {
+
+    private static final Pattern GITHUB_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:www\\.)?github\\.com/([^/]+)/([^/#?]+?)(?:\\.git)?/?(?:[?#].*)?$",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final ProjectService projectService;
     private final GithubClient githubClient;
@@ -187,11 +194,19 @@ public class GithubService {
 
         private static RepositoryName from(String fullName) {
             String normalized = fullName == null ? "" : fullName.trim();
+            Matcher urlMatcher = GITHUB_URL_PATTERN.matcher(normalized);
+            if (urlMatcher.matches()) {
+                return new RepositoryName(urlMatcher.group(1), urlMatcher.group(2));
+            }
+
             String[] parts = normalized.split("/", 2);
             if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
                 throw new ApiException(ErrorCode.INVALID_INPUT, "저장소 전체 이름은 owner/repository 형식이어야 합니다.");
             }
-            return new RepositoryName(parts[0], parts[1]);
+            String repositoryName = parts[1].endsWith(".git")
+                    ? parts[1].substring(0, parts[1].length() - 4)
+                    : parts[1];
+            return new RepositoryName(parts[0], repositoryName);
         }
 
         private String fullName() {
