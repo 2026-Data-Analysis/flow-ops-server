@@ -4,6 +4,7 @@ import flowops.apiinventory.dto.response.ScanResultResponse;
 import flowops.global.response.ApiResponse;
 import flowops.github.dto.request.RegisterRepositoryRequest;
 import flowops.github.dto.request.ScanRepositoryRequest;
+import flowops.github.dto.response.BranchResponse;
 import flowops.github.dto.response.RepositoryResponse;
 import flowops.github.service.GithubService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -51,6 +52,15 @@ public class GithubController {
             @PathVariable Long repositoryId
     ) {
         return ApiResponse.success(githubService.getRepositoryDetail(projectId, repositoryId));
+    }
+
+    @GetMapping("/{repositoryId}/branches")
+    @Operation(summary = "저장소 브랜치 목록 조회", description = "등록된 GitHub 저장소의 브랜치 목록을 조회합니다.")
+    public ApiResponse<List<BranchResponse>> listRepositoryBranches(
+            @PathVariable Long projectId,
+            @PathVariable Long repositoryId
+    ) {
+        return ApiResponse.success(githubService.listRepositoryBranches(projectId, repositoryId));
     }
 
     @PostMapping("/{repositoryId}/scan")

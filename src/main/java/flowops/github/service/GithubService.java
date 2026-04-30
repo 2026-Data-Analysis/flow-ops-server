@@ -102,6 +102,15 @@ public class GithubService {
         return toResponse(repositoryInfo);
     }
 
+    @Transactional(readOnly = true)
+    public List<BranchResponse> listRepositoryBranches(Long projectId, Long repositoryId) {
+        RepositoryInfo repositoryInfo = getRepository(repositoryId);
+        validateProjectScope(projectId, repositoryInfo);
+        return repositoryInfo.getBranches().stream()
+                .map(this::toBranchResponse)
+                .toList();
+    }
+
     @Transactional
     public List<ScanResultResponse> scanRepository(Long projectId, Long repositoryId, ScanRepositoryRequest request) {
         RepositoryInfo repositoryInfo = getRepository(repositoryId);
