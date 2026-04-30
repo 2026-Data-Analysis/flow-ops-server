@@ -51,7 +51,7 @@ public class GithubService {
 
     @Transactional
     public RepositoryResponse registerRepository(Long projectId, RegisterRepositoryRequest request) {
-        Project project = projectService.getProject(projectId);
+        Project project = projectService.getProjectOrCreateDefault(projectId);
         RepositoryName repositoryName = RepositoryName.from(request.fullName());
         repositoryInfoRepository.findByFullName(repositoryName.fullName())
                 .ifPresent(existing -> {

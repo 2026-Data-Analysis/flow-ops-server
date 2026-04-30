@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ProjectService {
 
+    private static final String DEFAULT_PROJECT_NAME = "Default Project";
+    private static final String DEFAULT_PROJECT_DESCRIPTION = "Automatically created project";
+
     private final ProjectRepository projectRepository;
 
     @Transactional
@@ -34,8 +37,9 @@ public class ProjectService {
         return ProjectResponse.from(project);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<ProjectResponse> listProjects() {
+        ensureDefaultProjectExists();
         return projectRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(ProjectResponse::from)
                 .toList();
@@ -45,6 +49,32 @@ public class ProjectService {
     public Project getProject(Long projectId) {
         return projectRepository.findById(projectId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "프로젝트를 찾을 수 없습니다."));
+    }
+
+    @Transactional
+    public Project getProjectOrCreateDefault(Long projectId) {
+        return projectRepository.findById(projectId)
+                .orElseGet(() -> {
+                    if (projectRepository.count() > 0) {
+                        throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "프로젝트를 찾을 수 없습니다.");
+                    }
+                    return createDefaultProject();
+                });
+    }
+
+    private void ensureDefaultProjectExists() {
+        if (projectRepository.count() == 0) {
+            createDefaultProject();
+        }
+    }
+
+    private Project createDefaultProject() {
+        return projectRepository.save(Project.builder()
+                .name(DEFAULT_PROJECT_NAME)
+                .slug(generateUniqueSlug(DEFAULT_PROJECT_NAME))
+                .description(DEFAULT_PROJECT_DESCRIPTION)
+                .status(ProjectStatus.ACTIVE)
+                .build());
     }
 
     private String generateUniqueSlug(String name) {

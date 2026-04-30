@@ -1,5 +1,6 @@
 package flowops.github.client;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import flowops.github.dto.response.BranchResponse;
 import flowops.github.dto.response.RepositoryFile;
 import flowops.github.dto.response.RepositorySnapshot;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,7 @@ import reactor.core.publisher.Mono;
 /**
  * GitHub REST API 호출을 담당하며, 저장소/브랜치/명세 파일 조회를 캡슐화합니다.
  */
+@Slf4j
 @Component
 public class GithubApiClient implements GithubClient {
 
@@ -60,7 +63,7 @@ public class GithubApiClient implements GithubClient {
                 ))
                 .timeout(Duration.ofSeconds(5))
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
-                        : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "GitHub 저장소 조회에 실패했습니다."))
+                        : githubRequestException("저장소 조회", owner, repositoryName, ex))
                 .block();
     }
 
@@ -81,7 +84,7 @@ public class GithubApiClient implements GithubClient {
                 .timeout(Duration.ofSeconds(5))
                 .onErrorResume(ex -> ex instanceof ApiException
                         ? Mono.error(ex)
-                        : Mono.error(new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "GitHub 브랜치 조회에 실패했습니다.")))
+                        : Mono.error(githubRequestException("브랜치 조회", owner, repositoryName, ex)))
                 .block();
 
         return branches.stream()
@@ -138,7 +141,7 @@ public class GithubApiClient implements GithubClient {
                 .bodyToMono(GithubTreePayload.class)
                 .timeout(Duration.ofSeconds(10))
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
-                        : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "GitHub 파일 트리 조회에 실패했습니다."))
+                        : githubRequestException("파일 트리 조회", owner, repositoryName, ex))
                 .block();
     }
 
@@ -161,7 +164,7 @@ public class GithubApiClient implements GithubClient {
                 .bodyToMono(GithubContentPayload.class)
                 .timeout(Duration.ofSeconds(10))
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
-                        : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "GitHub 파일 조회에 실패했습니다."))
+                        : githubRequestException("파일 조회", owner, repositoryName, ex))
                 .block();
 
         if (payload == null || payload.content() == null) {
@@ -190,7 +193,25 @@ public class GithubApiClient implements GithubClient {
         return index < 0 ? path : path.substring(index + 1);
     }
 
-    private record GithubRepositoryPayload(Long id, String fullName, String htmlUrl, String defaultBranch) {
+    private ApiException githubRequestException(String action, String owner, String repositoryName, Throwable ex) {
+        log.warn(
+                "GitHub {} failed: repository={}/{}, exception={}, message={}",
+                action,
+                owner,
+                repositoryName,
+                ex.getClass().getSimpleName(),
+                ex.getMessage(),
+                ex
+        );
+        return new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "GitHub " + action + "에 실패했습니다.", ex);
+    }
+
+    private record GithubRepositoryPayload(
+            Long id,
+            @JsonProperty("full_name") String fullName,
+            @JsonProperty("html_url") String htmlUrl,
+            @JsonProperty("default_branch") String defaultBranch
+    ) {
     }
 
     private record GithubBranchPayload(String name) {

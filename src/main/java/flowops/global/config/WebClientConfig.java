@@ -6,6 +6,8 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -22,6 +24,9 @@ public class WebClientConfig {
         return builder
                 .baseUrl(properties.github().apiUrl())
                 .defaultHeaders(headers -> {
+                    headers.set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+                    headers.set(HttpHeaders.USER_AGENT, "flowops-backend");
+                    headers.set("X-GitHub-Api-Version", "2022-11-28");
                     if (properties.github().token() != null && !properties.github().token().isBlank()) {
                         headers.setBearerAuth(properties.github().token());
                     }
