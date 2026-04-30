@@ -53,11 +53,16 @@ public class GithubService {
     public RepositoryResponse registerRepository(Long projectId, RegisterRepositoryRequest request) {
         Project project = projectService.getProjectOrCreateDefault(projectId);
         RepositoryName repositoryName = RepositoryName.from(request.fullName());
-        repositoryInfoRepository.findByFullName(repositoryName.fullName())
-                .ifPresent(existing -> {
-                    throw new ApiException(ErrorCode.DUPLICATE_RESOURCE, "이미 등록된 저장소입니다.");
-                });
+        return repositoryInfoRepository.findByFullName(repositoryName.fullName())
+                .map(this::toResponse)
+                .orElseGet(() -> registerNewRepository(project, repositoryName, request));
+    }
 
+    private RepositoryResponse registerNewRepository(
+            Project project,
+            RepositoryName repositoryName,
+            RegisterRepositoryRequest request
+    ) {
         RepositorySnapshot snapshot = githubClient.fetchRepository(repositoryName.owner(), repositoryName.name());
         String defaultBranch = snapshot.defaultBranch();
         Set<String> selectedBranchNames = selectedBranchNames(request.selectedBranches(), defaultBranch);
