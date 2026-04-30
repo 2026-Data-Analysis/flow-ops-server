@@ -32,3 +32,11 @@ services:
         value: "3"
       - key: GITHUB_MOCK_ENABLED
         value: "false"
+      - key: GITHUB_CONNECT_TIMEOUT_MILLIS
+        value: "10000"
+      - key: GITHUB_READ_TIMEOUT_MILLIS
+        value: "20000"
+      - key: GITHUB_MAX_RETRIES
+        value: "2"
+      - key: GITHUB_RETRY_BACKOFF_MILLIS
+        value: "500"

@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 /**
  * GitHub REST API 호출을 담당하며, 저장소/브랜치/명세 파일 조회를 캡슐화합니다.
@@ -64,6 +65,7 @@ public class GithubApiClient implements GithubClient {
                         payload.defaultBranch()
                 ))
                 .timeout(readTimeout)
+                .retryWhen(githubRetrySpec())
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("저장소 조회", owner, repositoryName, ex))
                 .block();
@@ -84,6 +86,7 @@ public class GithubApiClient implements GithubClient {
                 .bodyToFlux(GithubBranchPayload.class)
                 .collectList()
                 .timeout(readTimeout)
+                .retryWhen(githubRetrySpec())
                 .onErrorResume(ex -> ex instanceof ApiException
                         ? Mono.error(ex)
                         : Mono.error(githubRequestException("브랜치 조회", owner, repositoryName, ex)))
@@ -142,6 +145,7 @@ public class GithubApiClient implements GithubClient {
                         .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
                 .bodyToMono(GithubTreePayload.class)
                 .timeout(readTimeout)
+                .retryWhen(githubRetrySpec())
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("파일 트리 조회", owner, repositoryName, ex))
                 .block();
@@ -165,6 +169,7 @@ public class GithubApiClient implements GithubClient {
                         .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
                 .bodyToMono(GithubContentPayload.class)
                 .timeout(readTimeout)
+                .retryWhen(githubRetrySpec())
                 .onErrorMap(ex -> ex instanceof ApiException ? ex
                         : githubRequestException("파일 조회", owner, repositoryName, ex))
                 .block();
@@ -193,6 +198,16 @@ public class GithubApiClient implements GithubClient {
     private String fileName(String path) {
         int index = path.lastIndexOf('/');
         return index < 0 ? path : path.substring(index + 1);
+    }
+
+    private Retry githubRetrySpec() {
+        ExternalServiceProperties.Github github = properties.github();
+        return Retry.backoff(
+                        Math.max(0, github.maxRetries()),
+                        Duration.ofMillis(Math.max(1, github.retryBackoffMillis()))
+                )
+                .filter(ex -> !(ex instanceof ApiException))
+                .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> retrySignal.failure());
     }
 
     private ApiException githubRequestException(String action, String owner, String repositoryName, Throwable ex) {

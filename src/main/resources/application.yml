@@ -54,6 +54,8 @@ external:
     mock-enabled: ${GITHUB_MOCK_ENABLED:false}
     connect-timeout-millis: ${GITHUB_CONNECT_TIMEOUT_MILLIS:5000}
     read-timeout-millis: ${GITHUB_READ_TIMEOUT_MILLIS:20000}
+    max-retries: ${GITHUB_MAX_RETRIES:2}
+    retry-backoff-millis: ${GITHUB_RETRY_BACKOFF_MILLIS:500}
   ai:
     base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
     api-key: ${AI_SERVER_API_KEY:}

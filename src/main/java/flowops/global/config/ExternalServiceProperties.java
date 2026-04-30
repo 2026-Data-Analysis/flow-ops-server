@@ -13,7 +13,9 @@ public record ExternalServiceProperties(
             String token,
             boolean mockEnabled,
             int connectTimeoutMillis,
-            int readTimeoutMillis
+            int readTimeoutMillis,
+            int maxRetries,
+            int retryBackoffMillis
     ) {
     }
 
