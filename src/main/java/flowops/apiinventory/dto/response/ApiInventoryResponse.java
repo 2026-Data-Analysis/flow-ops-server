@@ -59,7 +59,7 @@ public record ApiInventoryResponse(
                 apiInventory.getSummary(),
                 apiInventory.getSourceType(),
                 apiInventory.getStatus(),
-                editStatus(apiInventory),
+                ApiInventoryEditStatus.from(apiInventory),
                 apiInventory.getSpecVersion(),
                 apiInventory.isAuthRequired(),
                 testLevels,
@@ -68,9 +68,4 @@ public record ApiInventoryResponse(
         );
     }
 
-    private static ApiInventoryEditStatus editStatus(ApiInventory apiInventory) {
-        return apiInventory.getSourceType() == ApiInventorySource.OPENAPI
-                ? ApiInventoryEditStatus.AUTO
-                : ApiInventoryEditStatus.EDITED;
-    }
 }
