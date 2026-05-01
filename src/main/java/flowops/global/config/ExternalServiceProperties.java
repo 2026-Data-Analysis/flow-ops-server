@@ -11,6 +11,8 @@ public record ExternalServiceProperties(
     public record Github(
             String apiUrl,
             String token,
+            String webhookSecret,
+            String inventoryWebhookBranches,
             boolean mockEnabled,
             int connectTimeoutMillis,
             int readTimeoutMillis,

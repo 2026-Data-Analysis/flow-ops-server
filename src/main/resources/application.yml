@@ -51,6 +51,8 @@ external:
   github:
     api-url: ${GITHUB_API_URL:https://api.github.com}
     token: ${GITHUB_TOKEN:}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+    inventory-webhook-branches: ${GITHUB_WEBHOOK_INVENTORY_BRANCHES:dev,staging,main}
     mock-enabled: ${GITHUB_MOCK_ENABLED:false}
     connect-timeout-millis: ${GITHUB_CONNECT_TIMEOUT_MILLIS:5000}
     read-timeout-millis: ${GITHUB_READ_TIMEOUT_MILLIS:20000}

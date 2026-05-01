@@ -34,6 +34,10 @@ services:
         value: "false"
       - key: GITHUB_TOKEN
         value: ${GITHUB_TOKEN}
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_WEBHOOK_INVENTORY_BRANCHES
+        value: "dev,staging,main"
       - key: GITHUB_CONNECT_TIMEOUT_MILLIS
         value: "10000"
       - key: GITHUB_READ_TIMEOUT_MILLIS
