@@ -12,7 +12,7 @@ public record CreateTestGenerationRequest(
         @NotNull(message = "앱 ID는 필수입니다.")
         Long appId,
 
-        @Schema(description = "환경 ID", example = "3")
+        @Schema(description = "생성 기준 환경 ID", example = "3")
         @NotNull(message = "환경 ID는 필수입니다.")
         Long environmentId,
 
@@ -20,14 +20,14 @@ public record CreateTestGenerationRequest(
         @NotBlank(message = "요청자는 필수입니다.")
         String requestedBy,
 
-        @ArraySchema(schema = @Schema(description = "생성 대상 API ID", example = "10"))
+        @ArraySchema(schema = @Schema(description = "테스트 케이스를 생성할 API ID", example = "10"))
         @NotEmpty(message = "API ID를 하나 이상 선택해야 합니다.")
         List<Long> selectedApiIds,
 
-        @Schema(description = "생성 컨텍스트 요약", example = "결제 승인과 취소 API 중심으로 신규 테스트 초안을 생성")
+        @Schema(description = "AI 생성에 참고할 업무/테스트 컨텍스트", example = "결제 승인과 취소 API 중심으로 신규 회귀 테스트 초안을 생성")
         String contextSummary,
 
-        @Schema(description = "현재 커버리지 비율", example = "42.5")
+        @Schema(description = "현재 테스트 커버리지 비율", example = "42.5")
         Double currentCoverage
 ) {
 }

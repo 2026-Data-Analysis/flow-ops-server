@@ -18,18 +18,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * AI 테스트 생성 요청과 생성 초안 저장 API를 제공합니다.
- */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Test Generation", description = "AI 테스트 생성 요청 및 초안 관리 API")
+@Tag(name = "Test Generation", description = "AI 테스트 케이스 생성 요청 및 초안 저장 API")
 public class TestGenerationController {
 
     private final TestGenerationService testGenerationService;
 
     @PostMapping("/test-generations")
-    @Operation(summary = "테스트 생성 요청", description = "선택한 API들을 기준으로 테스트 생성 작업을 요청합니다.")
+    @Operation(summary = "AI 테스트 케이스 생성 요청", description = "선택한 여러 API를 기준으로 AI 테스트 케이스 생성 작업을 요청합니다.")
     public ApiResponse<TestGenerationDetailResponse> requestGeneration(
             @Valid @RequestBody CreateTestGenerationRequest request
     ) {
@@ -37,19 +34,19 @@ public class TestGenerationController {
     }
 
     @GetMapping("/test-generations/{generationId}")
-    @Operation(summary = "생성 작업 상세 조회", description = "테스트 생성 작업의 상태와 집계 정보를 조회합니다.")
+    @Operation(summary = "생성 작업 상세 조회", description = "AI 테스트 케이스 생성 작업의 상태와 집계 정보를 조회합니다.")
     public ApiResponse<TestGenerationDetailResponse> getGeneration(@PathVariable Long generationId) {
         return ApiResponse.success(testGenerationService.getDetail(generationId));
     }
 
     @GetMapping("/test-generations/{generationId}/drafts")
-    @Operation(summary = "생성 초안 목록 조회", description = "생성 작업에서 만들어진 테스트 초안 목록을 조회합니다.")
+    @Operation(summary = "생성 초안 목록 조회", description = "AI 생성 작업에서 만들어진 테스트 케이스 초안 목록을 조회합니다.")
     public ApiResponse<List<GeneratedTestCaseDraftResponse>> getDrafts(@PathVariable Long generationId) {
         return ApiResponse.success(testGenerationService.getDrafts(generationId));
     }
 
     @PostMapping("/test-generations/{generationId}/save")
-    @Operation(summary = "선택 초안 저장", description = "선택된 생성 초안을 실제 테스트 케이스로 저장합니다.")
+    @Operation(summary = "선택 초안 저장", description = "사용자가 선택하고 수정한 생성 초안을 실제 테스트 케이스로 저장합니다.")
     public ApiResponse<SaveGeneratedDraftsResponse> saveDrafts(
             @PathVariable Long generationId,
             @Valid @RequestBody SaveGeneratedDraftsRequest request
