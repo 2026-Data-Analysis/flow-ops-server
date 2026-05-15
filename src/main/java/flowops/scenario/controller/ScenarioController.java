@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -44,8 +45,13 @@ public class ScenarioController {
 
     @GetMapping("/apps/{appId}/scenarios")
     @Operation(summary = "시나리오 목록 조회", description = "앱에 속한 시나리오 목록을 조회합니다.")
-    public ApiResponse<List<ScenarioSummaryResponse>> getScenariosByApp(@PathVariable Long appId) {
-        return ApiResponse.success(scenarioService.listByApp(appId));
+    public ApiResponse<List<ScenarioSummaryResponse>> getScenariosByApp(
+            @PathVariable Long appId,
+            @RequestParam(required = false) Long environmentId,
+            @RequestParam(required = false) Long repositoryId,
+            @RequestParam(required = false) String branchName
+    ) {
+        return ApiResponse.success(scenarioService.listByApp(appId, environmentId, repositoryId, branchName));
     }
 
     @GetMapping("/scenarios/{scenarioId}")

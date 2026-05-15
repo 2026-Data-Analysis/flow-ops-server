@@ -14,7 +14,6 @@ import flowops.apiinventory.dto.response.ApiInventoryListResponse;
 import flowops.apiinventory.dto.response.ApiInventoryResponse;
 import flowops.apiinventory.dto.response.SampleTestCaseResponse;
 import flowops.apiinventory.repository.ApiInventoryRepository;
-import flowops.coverage.service.CoverageService;
 import flowops.execution.domain.entity.ExecutionStepStatus;
 import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.github.domain.entity.RepositoryInfo;
@@ -46,7 +45,6 @@ public class ApiInventoryService {
     private final ApiEndpointRepository apiEndpointRepository;
     private final TestCaseRepository testCaseRepository;
     private final ExecutionStepLogRepository executionStepLogRepository;
-    private final CoverageService coverageService;
 
     @Transactional
     public ApiInventoryResponse saveInventory(Long projectId, SaveApiInventoryRequest request) {
@@ -87,9 +85,6 @@ public class ApiInventoryService {
         RepositoryInfo repositoryInfo = repositoryId == null ? null : githubService.getRepository(repositoryId);
         String defaultBranchName = repositoryInfo == null ? branchName : repositoryInfo.getDefaultBranch();
         String effectiveBranchName = branchName;
-        if ((effectiveBranchName == null || effectiveBranchName.isBlank()) && repositoryInfo != null) {
-            effectiveBranchName = repositoryInfo.getDefaultBranch();
-        }
 
         String normalizedKeyword = blankToNull(keyword);
         List<ApiInventory> inventories = (normalizedKeyword == null
@@ -131,20 +126,18 @@ public class ApiInventoryService {
         ApiInventory apiInventory = apiInventoryRepository.findByIdAndProjectId(inventoryId, projectId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 인벤토리를 찾을 수 없습니다."));
         Optional<ApiEndpoint> endpoint = findMatchingEndpoint(apiInventory);
-        long totalTestCount = endpoint.map(value -> testCaseRepository.countByApiEndpointIdAndActiveTrue(value.getId())).orElse(0L);
-        double coverage = endpoint.map(value -> coverageService.calculateCoveragePercent(value.getId())).orElse(0.0);
-        List<TestLevel> testLevels = endpoint.map(value -> testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(value.getId())
-                        .stream()
-                        .map(TestCase::getTestLevel)
-                        .distinct()
-                        .toList())
-                .orElse(List.of());
+        long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
+        double coverage = Math.min(100.0, totalTestCount * 20.0);
+        List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+                .stream()
+                .map(TestCase::getTestLevel)
+                .distinct()
+                .toList();
         double successRate = endpoint.map(value -> successRate(value.getId())).orElse(0.0);
-        List<SampleTestCaseResponse> sampleTestCases = endpoint.map(value -> testCaseRepository.findTop3ByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(value.getId())
-                        .stream()
-                        .map(SampleTestCaseResponse::from)
-                        .toList())
-                .orElse(List.of());
+        List<SampleTestCaseResponse> sampleTestCases = testCaseRepository.findTop3ByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+                .stream()
+                .map(SampleTestCaseResponse::from)
+                .toList();
 
         return ApiInventoryDetailResponse.from(
                 apiInventory,
@@ -158,31 +151,31 @@ public class ApiInventoryService {
 
     private ApiInventoryResponse toListItem(ApiInventory apiInventory) {
         Optional<ApiEndpoint> endpoint = findMatchingEndpoint(apiInventory);
-        long totalTestCount = endpoint.map(value -> testCaseRepository.countByApiEndpointIdAndActiveTrue(value.getId())).orElse(0L);
-        double coverage = endpoint.map(value -> coverageService.calculateCoveragePercent(value.getId())).orElse(0.0);
-        List<TestLevel> testLevels = endpoint.map(value -> testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(value.getId())
-                        .stream()
-                        .map(TestCase::getTestLevel)
-                        .distinct()
-                        .toList())
-                .orElse(List.of());
+        long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
+        double coverage = Math.min(100.0, totalTestCount * 20.0);
+        List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+                .stream()
+                .map(TestCase::getTestLevel)
+                .distinct()
+                .toList();
 
-        return ApiInventoryResponse.from(apiInventory, testLevels, totalTestCount, coverage);
+        return ApiInventoryResponse.from(
+                apiInventory,
+                endpoint.map(ApiEndpoint::getDomainTag).orElse(null),
+                testLevels,
+                totalTestCount,
+                coverage
+        );
     }
 
     private ApiInventoryBranchSummaryResponse branchSummary(String branchName, List<ApiInventory> inventories) {
-        List<ApiEndpoint> matchedEndpoints = inventories.stream()
-                .map(this::findMatchingEndpoint)
-                .flatMap(Optional::stream)
-                .distinct()
-                .toList();
-        long totalTestCount = matchedEndpoints.stream()
-                .mapToLong(endpoint -> testCaseRepository.countByApiEndpointIdAndActiveTrue(endpoint.getId()))
+        long totalTestCount = inventories.stream()
+                .mapToLong(inventory -> testCaseRepository.countByApiInventoryIdAndActiveTrue(inventory.getId()))
                 .sum();
-        double averageCoverage = matchedEndpoints.isEmpty()
+        double averageCoverage = inventories.isEmpty()
                 ? 0.0
-                : matchedEndpoints.stream()
-                .mapToDouble(endpoint -> coverageService.calculateCoveragePercent(endpoint.getId()))
+                : inventories.stream()
+                .mapToDouble(inventory -> Math.min(100.0, testCaseRepository.countByApiInventoryIdAndActiveTrue(inventory.getId()) * 20.0))
                 .average()
                 .orElse(0.0);
         return new ApiInventoryBranchSummaryResponse(branchName, inventories.size(), averageCoverage, totalTestCount);
@@ -208,11 +201,9 @@ public class ApiInventoryService {
         if (testLevel == null) {
             return true;
         }
-        return findMatchingEndpoint(apiInventory)
-                .map(endpoint -> testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(endpoint.getId())
-                        .stream()
-                        .anyMatch(testCase -> testCase.getTestLevel() == testLevel))
-                .orElse(false);
+        return testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+                .stream()
+                .anyMatch(testCase -> testCase.getTestLevel() == testLevel);
     }
 
     private String blankToNull(String value) {

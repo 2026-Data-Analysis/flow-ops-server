@@ -1,8 +1,14 @@
 package flowops.scenario.service;
 
+import flowops.api.domain.entity.ApiEndpoint;
+import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
+import flowops.environment.domain.entity.Environment;
+import flowops.environment.service.EnvironmentService;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.scenario.domain.entity.Scenario;
@@ -34,12 +40,19 @@ public class ScenarioService {
     private final ScenarioStepRepository scenarioStepRepository;
     private final AppService appService;
     private final ApiEndpointService apiEndpointService;
+    private final ApiInventoryRepository apiInventoryRepository;
+    private final EnvironmentService environmentService;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
         App app = appService.getApp(request.appId());
+        Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
+        if (environment != null && !environment.getApp().getId().equals(app.getId())) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "시나리오 환경이 요청한 앱에 속하지 않습니다.");
+        }
         Scenario scenario = scenarioRepository.save(Scenario.builder()
                 .app(app)
+                .environment(environment)
                 .name(request.name())
                 .description(request.description())
                 .type(request.type())
@@ -51,9 +64,17 @@ public class ScenarioService {
     }
 
     @Transactional(readOnly = true)
-    public List<ScenarioSummaryResponse> listByApp(Long appId) {
+    public List<ScenarioSummaryResponse> listByApp(Long appId, Long environmentId, Long repositoryId, String branchName) {
         appService.getApp(appId);
-        return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId)
+        List<Scenario> scenarios = environmentId == null
+                ? scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId)
+                : scenarioRepository.findByAppIdAndEnvironmentIdOrderByUpdatedAtDesc(appId, environmentId);
+        if (environmentId == null && (repositoryId != null || (branchName != null && !branchName.isBlank()))) {
+            scenarios = scenarios.stream()
+                    .filter(scenario -> matchesEnvironment(scenario, repositoryId, branchName))
+                    .toList();
+        }
+        return scenarios
                 .stream()
                 .map(scenario -> ScenarioSummaryResponse.from(
                         scenario,
@@ -126,10 +147,13 @@ public class ScenarioService {
         }
         List<ScenarioStepResponse> responses = new ArrayList<>();
         for (ScenarioStepRequest step : steps) {
+            ApiInventory apiInventory = apiInventoryRepository.findById(step.apiId()).orElse(null);
+            validateInventoryEnvironment(apiInventory, scenario.getEnvironment());
             ScenarioStep saved = scenarioStepRepository.save(ScenarioStep.builder()
                     .scenario(scenario)
                     .stepOrder(step.stepOrder())
-                    .apiEndpoint(apiEndpointService.getApiEndpoint(step.apiId()))
+                    .apiEndpoint(apiInventory == null ? apiEndpointService.getApiEndpoint(step.apiId()) : endpointForInventory(apiInventory))
+                    .apiInventory(apiInventory)
                     .label(step.label())
                     .requestConfig(step.requestConfig())
                     .extractRules(step.extractRules())
@@ -147,5 +171,37 @@ public class ScenarioService {
                 .stream()
                 .map(ScenarioStepResponse::from)
                 .toList();
+    }
+
+    private ApiEndpoint endpointForInventory(ApiInventory apiInventory) {
+        ApiMethod method = ApiMethod.valueOf(apiInventory.getMethod().name());
+        return apiEndpointService.findFirstByMethodAndPath(method, apiInventory.getEndpointPath());
+    }
+
+    private boolean matchesEnvironment(Scenario scenario, Long repositoryId, String branchName) {
+        if (scenario.getEnvironment() == null) {
+            return false;
+        }
+        boolean repositoryMatches = repositoryId == null
+                || (scenario.getEnvironment().getRepositoryInfo() != null
+                && scenario.getEnvironment().getRepositoryInfo().getId().equals(repositoryId));
+        boolean branchMatches = branchName == null || branchName.isBlank()
+                || branchName.equals(scenario.getEnvironment().getBranchName());
+        return repositoryMatches && branchMatches;
+    }
+
+    private void validateInventoryEnvironment(ApiInventory apiInventory, Environment environment) {
+        if (apiInventory == null || environment == null) {
+            return;
+        }
+        boolean repositoryMatches = environment.getRepositoryInfo() == null
+                || (apiInventory.getRepositoryInfo() != null
+                && apiInventory.getRepositoryInfo().getId().equals(environment.getRepositoryInfo().getId()));
+        boolean branchMatches = environment.getBranchName() == null
+                || environment.getBranchName().isBlank()
+                || environment.getBranchName().equals(apiInventory.getBranchName());
+        if (!repositoryMatches || !branchMatches) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "시나리오 단계의 API 인벤토리가 시나리오 환경에 속하지 않습니다.");
+        }
     }
 }

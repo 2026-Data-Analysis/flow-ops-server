@@ -1,6 +1,7 @@
 package flowops.testcase.domain.entity;
 
 import flowops.api.domain.entity.ApiEndpoint;
+import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.app.domain.entity.App;
 import flowops.global.common.BaseEntity;
 import jakarta.persistence.Column;
@@ -39,6 +40,10 @@ public class TestCase extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "api_id", nullable = false)
     private ApiEndpoint apiEndpoint;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "api_inventory_id")
+    private ApiInventory apiInventory;
 
     @Column(nullable = false, length = 200)
     private String name;
@@ -86,6 +91,7 @@ public class TestCase extends BaseEntity {
     private TestCase(
             App app,
             ApiEndpoint apiEndpoint,
+            ApiInventory apiInventory,
             String name,
             String description,
             TestCaseType type,
@@ -102,6 +108,7 @@ public class TestCase extends BaseEntity {
     ) {
         this.app = app;
         this.apiEndpoint = apiEndpoint;
+        this.apiInventory = apiInventory;
         this.name = name;
         this.description = description;
         this.type = type;

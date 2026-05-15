@@ -1,6 +1,7 @@
 package flowops.scenario.domain.entity;
 
 import flowops.api.domain.entity.ApiEndpoint;
+import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.global.common.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -37,6 +38,10 @@ public class ScenarioStep extends BaseEntity {
     @JoinColumn(name = "api_id", nullable = false)
     private ApiEndpoint apiEndpoint;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "api_inventory_id")
+    private ApiInventory apiInventory;
+
     @Column(nullable = false, length = 200)
     private String label;
 
@@ -54,6 +59,7 @@ public class ScenarioStep extends BaseEntity {
             Scenario scenario,
             Integer stepOrder,
             ApiEndpoint apiEndpoint,
+            ApiInventory apiInventory,
             String label,
             String requestConfig,
             String extractRules,
@@ -62,6 +68,7 @@ public class ScenarioStep extends BaseEntity {
         this.scenario = scenario;
         this.stepOrder = stepOrder;
         this.apiEndpoint = apiEndpoint;
+        this.apiInventory = apiInventory;
         this.label = label;
         this.requestConfig = requestConfig;
         this.extractRules = extractRules;

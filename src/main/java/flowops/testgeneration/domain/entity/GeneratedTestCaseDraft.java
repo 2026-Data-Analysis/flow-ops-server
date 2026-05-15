@@ -1,6 +1,7 @@
 package flowops.testgeneration.domain.entity;
 
 import flowops.api.domain.entity.ApiEndpoint;
+import flowops.apiinventory.domain.entity.ApiInventory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -33,6 +34,10 @@ public class GeneratedTestCaseDraft {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "api_id", nullable = false)
     private ApiEndpoint apiEndpoint;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "api_inventory_id")
+    private ApiInventory apiInventory;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -74,6 +79,7 @@ public class GeneratedTestCaseDraft {
     private GeneratedTestCaseDraft(
             TestGeneration generation,
             ApiEndpoint apiEndpoint,
+            ApiInventory apiInventory,
             String title,
             String description,
             String type,
@@ -89,6 +95,7 @@ public class GeneratedTestCaseDraft {
     ) {
         this.generation = generation;
         this.apiEndpoint = apiEndpoint;
+        this.apiInventory = apiInventory;
         this.title = title;
         this.description = description;
         this.type = type;

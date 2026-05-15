@@ -1,13 +1,18 @@
 package flowops.testgeneration.service;
 
 import flowops.api.domain.entity.ApiEndpoint;
+import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.environment.domain.entity.Environment;
 import flowops.environment.service.EnvironmentService;
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
+import flowops.global.exception.ApiException;
+import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiGeneratedDraftCommand;
 import flowops.integration.ai.AiTestGenerationGateway;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
@@ -55,6 +60,7 @@ public class TestGenerationService {
     private final AppService appService;
     private final EnvironmentService environmentService;
     private final ApiEndpointService apiEndpointService;
+    private final ApiInventoryRepository apiInventoryRepository;
     private final AiTestGenerationGateway aiTestGenerationGateway;
     private final TestCaseRepository testCaseRepository;
 
@@ -62,6 +68,9 @@ public class TestGenerationService {
     public TestGenerationDetailResponse requestGeneration(CreateTestGenerationRequest request) {
         App app = appService.getApp(request.appId());
         Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
+        if (environment != null && !environment.getApp().getId().equals(app.getId())) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "테스트 생성 환경이 요청한 앱에 속하지 않습니다.");
+        }
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
                 .app(app)
                 .environment(environment)
@@ -77,10 +86,16 @@ public class TestGenerationService {
                 .build());
 
         List<TestGenerationApiSelection> selections = request.selectedApiIds().stream()
-                .map(apiId -> TestGenerationApiSelection.builder()
-                        .generation(generation)
-                        .apiEndpoint(apiEndpointService.getApiEndpoint(apiId))
-                        .build())
+                .map(apiId -> {
+                    ApiInventory apiInventory = apiInventoryRepository.findById(apiId).orElse(null);
+                    validateInventoryEnvironment(apiInventory, environment);
+                    ApiEndpoint apiEndpoint = apiInventory == null ? apiEndpointService.getApiEndpoint(apiId) : endpointForInventory(apiInventory);
+                    return TestGenerationApiSelection.builder()
+                            .generation(generation)
+                            .apiEndpoint(apiEndpoint)
+                            .apiInventory(apiInventory)
+                            .build();
+                })
                 .map(selectionRepository::save)
                 .toList();
 
@@ -135,6 +150,7 @@ public class TestGenerationService {
             TestCase savedTestCase = testCaseRepository.save(TestCase.builder()
                     .app(generation.getApp())
                     .apiEndpoint(draft.getApiEndpoint())
+                    .apiInventory(draft.getApiInventory())
                     .name(saveRequest.name().trim())
                     .description(defaultIfBlank(saveRequest.description(), draft.getDescription()))
                     .type(parseType(defaultIfBlank(saveRequest.type(), draft.getType())))
@@ -211,9 +227,15 @@ public class TestGenerationService {
             int newCount = 0;
             for (AiGeneratedDraftCommand command : commands) {
                 ApiEndpoint apiEndpoint = apiEndpointService.getApiEndpoint(command.apiId());
+                ApiInventory apiInventory = apiInventoryRepository.findById(command.apiId()).orElse(null);
+                validateInventoryEnvironment(apiInventory, generation.getEnvironment());
+                if (apiInventory != null) {
+                    apiEndpoint = endpointForInventory(apiInventory);
+                }
                 draftRepository.save(GeneratedTestCaseDraft.builder()
                         .generation(generation)
                         .apiEndpoint(apiEndpoint)
+                        .apiInventory(apiInventory)
                         .title(command.title())
                         .description(command.description())
                         .type(command.type())
@@ -318,7 +340,27 @@ public class TestGenerationService {
         if (failedLog.getScenarioStep() != null) {
             return failedLog.getScenarioStep().getApiEndpoint();
         }
-        throw new IllegalStateException("Failed log is not linked to an API endpoint.");
+        throw new IllegalStateException("실패 로그가 API 엔드포인트와 연결되어 있지 않습니다.");
+    }
+
+    private ApiEndpoint endpointForInventory(ApiInventory apiInventory) {
+        ApiMethod method = ApiMethod.valueOf(apiInventory.getMethod().name());
+        return apiEndpointService.findFirstByMethodAndPath(method, apiInventory.getEndpointPath());
+    }
+
+    private void validateInventoryEnvironment(ApiInventory apiInventory, Environment environment) {
+        if (apiInventory == null || environment == null) {
+            return;
+        }
+        boolean repositoryMatches = environment.getRepositoryInfo() == null
+                || (apiInventory.getRepositoryInfo() != null
+                && apiInventory.getRepositoryInfo().getId().equals(environment.getRepositoryInfo().getId()));
+        boolean branchMatches = environment.getBranchName() == null
+                || environment.getBranchName().isBlank()
+                || environment.getBranchName().equals(apiInventory.getBranchName());
+        if (!repositoryMatches || !branchMatches) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "선택한 API 인벤토리가 테스트 생성 환경에 속하지 않습니다.");
+        }
     }
 
     private GeneratedTestCaseDraft createFailureDraft(TestGeneration generation, ExecutionStepLog failedLog, boolean duplicate) {

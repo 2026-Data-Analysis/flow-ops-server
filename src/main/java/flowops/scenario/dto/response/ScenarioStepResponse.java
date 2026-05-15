@@ -28,8 +28,11 @@ public record ScenarioStepResponse(
         return new ScenarioStepResponse(
                 step.getId(),
                 step.getStepOrder(),
-                step.getApiEndpoint().getId(),
-                EndpointResponse.from(step.getApiEndpoint()),
+                step.getApiInventory() == null ? step.getApiEndpoint().getId() : step.getApiInventory().getId(),
+                EndpointResponse.from(
+                        step.getApiEndpoint(),
+                        step.getApiInventory() == null ? step.getApiEndpoint().getId() : step.getApiInventory().getId()
+                ),
                 step.getLabel(),
                 step.getRequestConfig(),
                 step.getExtractRules(),
@@ -50,8 +53,12 @@ public record ScenarioStepResponse(
             String controllerName
     ) {
         public static EndpointResponse from(ApiEndpoint endpoint) {
+            return from(endpoint, endpoint.getId());
+        }
+
+        public static EndpointResponse from(ApiEndpoint endpoint, Long id) {
             return new EndpointResponse(
-                    endpoint.getId(),
+                    id,
                     endpoint.getMethod(),
                     endpoint.getPath(),
                     endpoint.getDomainTag(),

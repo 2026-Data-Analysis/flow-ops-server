@@ -1,6 +1,7 @@
 package flowops.testgeneration.domain.entity;
 
 import flowops.api.domain.entity.ApiEndpoint;
+import flowops.apiinventory.domain.entity.ApiInventory;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -32,9 +33,14 @@ public class TestGenerationApiSelection {
     @JoinColumn(name = "api_id", nullable = false)
     private ApiEndpoint apiEndpoint;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "api_inventory_id")
+    private ApiInventory apiInventory;
+
     @Builder
-    private TestGenerationApiSelection(TestGeneration generation, ApiEndpoint apiEndpoint) {
+    private TestGenerationApiSelection(TestGeneration generation, ApiEndpoint apiEndpoint, ApiInventory apiInventory) {
         this.generation = generation;
         this.apiEndpoint = apiEndpoint;
+        this.apiInventory = apiInventory;
     }
 }

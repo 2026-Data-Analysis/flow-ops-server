@@ -18,6 +18,9 @@ public record UpdateEnvironmentRequest(
         @Size(max = 100, message = "브랜치명은 100자 이하여야 합니다.")
         String branchName,
 
+        @Schema(description = "저장소 ID", example = "10")
+        Long repositoryId,
+
         @Schema(description = "기본 URL", example = "https://api.flowops.dev")
         @NotBlank(message = "기본 URL은 필수입니다.")
         @Size(max = 1000, message = "기본 URL은 1000자 이하여야 합니다.")

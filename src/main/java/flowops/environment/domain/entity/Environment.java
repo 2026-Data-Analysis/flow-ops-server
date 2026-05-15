@@ -104,6 +104,7 @@ public class Environment extends BaseEntity {
     }
 
     public void update(
+            RepositoryInfo repositoryInfo,
             String name,
             String branchName,
             String baseUrl,
@@ -113,6 +114,7 @@ public class Environment extends BaseEntity {
             TestLevel defaultTestLevel,
             TestLevelSource defaultTestLevelSource
     ) {
+        this.repositoryInfo = repositoryInfo;
         this.name = name;
         this.branchName = branchName;
         this.baseUrl = baseUrl;

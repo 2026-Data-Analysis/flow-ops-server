@@ -6,7 +6,9 @@ import flowops.report.service.IncidentDashboardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,9 +30,19 @@ public class IncidentDashboardController {
             @PathVariable Long appId,
             @Parameter(description = "환경 ID 필터")
             @RequestParam(required = false) Long environmentId,
+            @Parameter(description = "위험도 필터(CRITICAL, HIGH, MEDIUM, LOW)")
+            @RequestParam(required = false) String riskLevel,
+            @Parameter(description = "조회 시작일", example = "2026-04-01")
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate from,
+            @Parameter(description = "조회 종료일", example = "2026-04-08")
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate to,
             @Parameter(description = "조회 기간(일)", example = "7")
             @RequestParam(defaultValue = "7") int days
     ) {
-        return ApiResponse.success(incidentDashboardService.getDashboard(appId, environmentId, days));
+        return ApiResponse.success(incidentDashboardService.getDashboard(appId, environmentId, riskLevel, from, to, days));
     }
 }

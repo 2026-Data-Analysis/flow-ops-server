@@ -49,7 +49,11 @@ public record TestGenerationDetailResponse(
                 generation.getEnvironment() == null ? null : generation.getEnvironment().getId(),
                 generation.getStatus(),
                 generation.getRequestedBy(),
-                selections.stream().map(selection -> selection.getApiEndpoint().getId()).toList(),
+                selections.stream()
+                        .map(selection -> selection.getApiInventory() == null
+                                ? selection.getApiEndpoint().getId()
+                                : selection.getApiInventory().getId())
+                        .toList(),
                 generation.getContextSummary(),
                 generation.getCurrentCoverage() == null ? null : generation.getCurrentCoverage().doubleValue(),
                 generation.getPredictedCoverage() == null ? null : generation.getPredictedCoverage().doubleValue(),

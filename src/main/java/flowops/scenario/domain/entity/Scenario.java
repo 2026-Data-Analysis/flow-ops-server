@@ -1,6 +1,7 @@
 package flowops.scenario.domain.entity;
 
 import flowops.app.domain.entity.App;
+import flowops.environment.domain.entity.Environment;
 import flowops.global.common.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -35,6 +36,10 @@ public class Scenario extends BaseEntity {
     @JoinColumn(name = "app_id", nullable = false)
     private App app;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "environment_id")
+    private Environment environment;
+
     @Column(nullable = false, length = 200)
     private String name;
 
@@ -55,6 +60,7 @@ public class Scenario extends BaseEntity {
     @Builder
     private Scenario(
             App app,
+            Environment environment,
             String name,
             String description,
             ScenarioType type,
@@ -62,6 +68,7 @@ public class Scenario extends BaseEntity {
             ScenarioSource source
     ) {
         this.app = app;
+        this.environment = environment;
         this.name = name;
         this.description = description;
         this.type = type;

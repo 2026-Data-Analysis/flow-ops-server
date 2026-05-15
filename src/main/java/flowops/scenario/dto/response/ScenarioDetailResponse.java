@@ -11,6 +11,8 @@ public record ScenarioDetailResponse(
         Long id,
         @Schema(description = "앱 ID", example = "1")
         Long appId,
+        @Schema(description = "환경 ID", example = "3")
+        Long environmentId,
         @Schema(description = "시나리오 이름", example = "결제 승인 후 취소 시나리오")
         String name,
         @Schema(description = "시나리오 유형", example = "HAPPY_PATH")
@@ -27,6 +29,7 @@ public record ScenarioDetailResponse(
         return new ScenarioDetailResponse(
                 scenario.getId(),
                 scenario.getApp().getId(),
+                scenario.getEnvironment() == null ? null : scenario.getEnvironment().getId(),
                 scenario.getName(),
                 scenario.getType(),
                 steps,

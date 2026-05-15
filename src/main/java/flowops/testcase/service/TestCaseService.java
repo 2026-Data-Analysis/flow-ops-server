@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.testcase.domain.entity.TestCase;
@@ -30,10 +32,25 @@ public class TestCaseService {
     private final TestCaseRepository testCaseRepository;
     private final TestCaseVersionRepository testCaseVersionRepository;
     private final ApiEndpointService apiEndpointService;
+    private final ApiInventoryRepository apiInventoryRepository;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public List<TestCaseSummaryResponse> listByApi(Long apiId) {
+        return apiInventoryRepository.findById(apiId)
+                .map(this::listByInventory)
+                .orElseGet(() -> listByEndpoint(apiId));
+    }
+
+    private List<TestCaseSummaryResponse> listByInventory(ApiInventory apiInventory) {
+        ApiEndpoint selectedEndpoint = findEndpointForInventory(apiInventory);
+        return testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+                .stream()
+                .map(testCase -> TestCaseSummaryResponse.from(testCase, selectedEndpoint))
+                .toList();
+    }
+
+    private List<TestCaseSummaryResponse> listByEndpoint(Long apiId) {
         ApiEndpoint selectedEndpoint = apiEndpointService.getApiEndpoint(apiId);
         return testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(apiId)
                 .stream()
@@ -106,5 +123,10 @@ public class TestCaseService {
         } catch (JsonProcessingException exception) {
             throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "테스트케이스 버전 스냅샷 생성에 실패했습니다.");
         }
+    }
+
+    private ApiEndpoint findEndpointForInventory(ApiInventory apiInventory) {
+        flowops.api.domain.entity.ApiMethod method = flowops.api.domain.entity.ApiMethod.valueOf(apiInventory.getMethod().name());
+        return apiEndpointService.findFirstByMethodAndPath(method, apiInventory.getEndpointPath());
     }
 }

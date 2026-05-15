@@ -42,20 +42,29 @@ public class IncidentDashboardService {
     private final ExecutionStepLogRepository executionStepLogRepository;
 
     @Transactional(readOnly = true)
-    public IncidentDashboardResponse getDashboard(Long appId, Long environmentId, int days) {
+    public IncidentDashboardResponse getDashboard(
+            Long appId,
+            Long environmentId,
+            String riskLevel,
+            LocalDate from,
+            LocalDate to,
+            int days
+    ) {
         appService.getApp(appId);
-        int safeDays = Math.max(days, 1);
-        LocalDateTime currentTo = LocalDateTime.now();
-        LocalDateTime currentFrom = currentTo.minusDays(safeDays);
-        LocalDateTime previousFrom = currentFrom.minusDays(safeDays);
+        DashboardPeriod period = resolvePeriod(from, to, days);
+        RiskLevel risk = RiskLevel.from(riskLevel);
+        long periodDays = Math.max(1, Duration.between(period.from(), period.to()).toDays());
+        LocalDateTime previousFrom = period.from().minusDays(periodDays);
 
-        List<Execution> currentExecutions = executionRepository.findDashboardExecutions(appId, environmentId, currentFrom, currentTo);
-        List<Execution> previousExecutions = executionRepository.findDashboardExecutions(appId, environmentId, previousFrom, currentFrom);
+        List<Execution> currentExecutions = executionRepository.findDashboardExecutions(appId, environmentId, period.from(), period.to());
+        List<Execution> previousExecutions = executionRepository.findDashboardExecutions(appId, environmentId, previousFrom, period.from());
         List<ExecutionStepLog> currentLogs = findLogs(currentExecutions);
         List<ExecutionStepLog> previousLogs = findLogs(previousExecutions);
+        List<ExecutionStepLog> currentRiskLogs = filterByRisk(currentLogs, risk);
+        List<ExecutionStepLog> previousRiskLogs = filterByRisk(previousLogs, risk);
 
-        DashboardMetrics currentMetrics = calculateMetrics(currentExecutions, currentLogs, safeDays, currentFrom.toLocalDate());
-        DashboardMetrics previousMetrics = calculateMetrics(previousExecutions, previousLogs, safeDays, previousFrom.toLocalDate());
+        DashboardMetrics currentMetrics = calculateMetrics(currentExecutions, currentRiskLogs, period.days(), period.from().toLocalDate());
+        DashboardMetrics previousMetrics = calculateMetrics(previousExecutions, previousRiskLogs, period.days(), previousFrom.toLocalDate());
 
         return new IncidentDashboardResponse(
                 currentMetrics.successRate,
@@ -84,24 +93,60 @@ public class IncidentDashboardService {
         return executionStepLogRepository.findByExecutionIdIn(executionIds);
     }
 
+    private DashboardPeriod resolvePeriod(LocalDate from, LocalDate to, int days) {
+        int safeDays = Math.max(days, 1);
+        LocalDate currentToDate = to == null ? LocalDate.now().plusDays(1) : to.plusDays(1);
+        LocalDate currentFromDate = from == null ? currentToDate.minusDays(safeDays) : from;
+        if (!currentFromDate.isBefore(currentToDate)) {
+            currentFromDate = currentToDate.minusDays(1);
+        }
+        return new DashboardPeriod(
+                currentFromDate.atStartOfDay(),
+                currentToDate.atStartOfDay(),
+                (int) Math.max(1, Duration.between(currentFromDate.atStartOfDay(), currentToDate.atStartOfDay()).toDays())
+        );
+    }
+
+    private List<ExecutionStepLog> filterByRisk(List<ExecutionStepLog> logs, RiskLevel riskLevel) {
+        if (riskLevel == RiskLevel.ALL) {
+            return logs;
+        }
+        return logs.stream()
+                .filter(log -> log.getStatus() == ExecutionStepStatus.FAILED)
+                .filter(log -> classifyRisk(log) == riskLevel)
+                .toList();
+    }
+
     private DashboardMetrics calculateMetrics(
             List<Execution> executions,
             List<ExecutionStepLog> logs,
             int days,
             LocalDate startDate
     ) {
-        int totalTests = logs.size();
-        int failedTests = (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count();
-        int passedTests = (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.SUCCESS).count();
+        int totalTests = executions.stream()
+                .map(Execution::getTotalCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int failedTests = executions.stream()
+                .map(Execution::getFailedCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int passedTests = executions.stream()
+                .map(Execution::getPassedCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
         double successRate = totalTests == 0 ? 0.0 : round((passedTests * 100.0) / totalTests);
         double failureRate = totalTests == 0 ? 0.0 : round((failedTests * 100.0) / totalTests);
-        double avgDurationMs = round(logs.stream()
-                .map(ExecutionStepLog::getDurationMs)
+        double avgDurationMs = round(executions.stream()
+                .map(Execution::getAvgDurationMs)
                 .filter(Objects::nonNull)
                 .mapToLong(Long::longValue)
                 .average()
                 .orElse(0.0));
-        long totalErrors = failedTests;
+        long totalErrors = logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count();
         long criticalErrors = logs.stream().filter(this::isCriticalError).count();
         long recurring = recurringCount(logs);
         long affectedApis = logs.stream()
@@ -123,7 +168,7 @@ public class IncidentDashboardService {
                 failureRate,
                 mttrMinutes,
                 affectedApis,
-                buildTrend(logs, days, startDate),
+                buildTrend(executions, days, startDate),
                 buildErrorDistribution(logs),
                 buildErrorsByEnvironment(logs),
                 buildTopFailingApis(logs),
@@ -132,19 +177,16 @@ public class IncidentDashboardService {
     }
 
     private List<IncidentDashboardResponse.TestResultTrendPointResponse> buildTrend(
-            List<ExecutionStepLog> logs,
+            List<Execution> executions,
             int days,
             LocalDate startDate
     ) {
         Map<LocalDate, Integer> passedByDate = new HashMap<>();
         Map<LocalDate, Integer> failedByDate = new HashMap<>();
-        for (ExecutionStepLog log : logs) {
-            LocalDate date = (log.getStartedAt() == null ? log.getCreatedAt() : log.getStartedAt()).toLocalDate();
-            if (log.getStatus() == ExecutionStepStatus.SUCCESS) {
-                passedByDate.merge(date, 1, Integer::sum);
-            } else if (log.getStatus() == ExecutionStepStatus.FAILED) {
-                failedByDate.merge(date, 1, Integer::sum);
-            }
+        for (Execution execution : executions) {
+            LocalDate date = executedAt(execution).toLocalDate();
+            passedByDate.merge(date, execution.getPassedCount() == null ? 0 : execution.getPassedCount(), Integer::sum);
+            failedByDate.merge(date, execution.getFailedCount() == null ? 0 : execution.getFailedCount(), Integer::sum);
         }
 
         List<IncidentDashboardResponse.TestResultTrendPointResponse> points = new ArrayList<>();
@@ -152,6 +194,8 @@ public class IncidentDashboardService {
             LocalDate date = startDate.plusDays(i);
             points.add(new IncidentDashboardResponse.TestResultTrendPointResponse(
                     date,
+                    passedByDate.getOrDefault(date, 0),
+                    failedByDate.getOrDefault(date, 0),
                     passedByDate.getOrDefault(date, 0),
                     failedByDate.getOrDefault(date, 0)
             ));
@@ -259,7 +303,8 @@ public class IncidentDashboardService {
                 .values()
                 .stream()
                 .filter(count -> count > 1)
-                .count();
+                .mapToLong(Long::longValue)
+                .sum();
     }
 
     private double meanTimeToRecoveryMinutes(List<Execution> executions) {
@@ -298,12 +343,25 @@ public class IncidentDashboardService {
     }
 
     private boolean isCriticalError(ExecutionStepLog log) {
+        return classifyRisk(log) == RiskLevel.CRITICAL;
+    }
+
+    private RiskLevel classifyRisk(ExecutionStepLog log) {
         Integer code = log.getResponseCode();
         String message = normalizeText(log.getErrorMessage());
-        return (code != null && code >= 500)
+        if ((code != null && code >= 500)
                 || message.contains("timeout")
                 || message.contains("connection refused")
-                || message.contains("exception");
+                || message.contains("exception")) {
+            return RiskLevel.CRITICAL;
+        }
+        if (code != null && code >= 400) {
+            return RiskLevel.HIGH;
+        }
+        if (!message.isBlank()) {
+            return RiskLevel.MEDIUM;
+        }
+        return RiskLevel.LOW;
     }
 
     private String errorLabel(ExecutionStepLog log) {
@@ -343,8 +401,22 @@ public class IncidentDashboardService {
         return method + (log.getPath() == null ? "" : log.getPath());
     }
 
+    private LocalDateTime executedAt(Execution execution) {
+        if (execution.getStartedAt() != null) {
+            return execution.getStartedAt();
+        }
+        if (execution.getEndedAt() != null) {
+            return execution.getEndedAt();
+        }
+        return execution.getCreatedAt();
+    }
+
     private IncidentDashboardResponse.MetricChangeResponse metric(double current, double previous) {
-        return new IncidentDashboardResponse.MetricChangeResponse(round(current), round(percentChange(current, previous)));
+        return new IncidentDashboardResponse.MetricChangeResponse(
+                round(current),
+                round(percentChange(current, previous)),
+                round(current - previous)
+        );
     }
 
     private double percentChange(double current, double previous) {
@@ -386,5 +458,27 @@ public class IncidentDashboardService {
             List<IncidentDashboardResponse.TopFailingApiResponse> topFailingApis,
             List<IncidentDashboardResponse.RecentIncidentResponse> recentIncidents
     ) {
+    }
+
+    private record DashboardPeriod(LocalDateTime from, LocalDateTime to, int days) {
+    }
+
+    private enum RiskLevel {
+        ALL,
+        CRITICAL,
+        HIGH,
+        MEDIUM,
+        LOW;
+
+        static RiskLevel from(String value) {
+            if (value == null || value.isBlank()) {
+                return ALL;
+            }
+            try {
+                return RiskLevel.valueOf(value.trim().toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+                return ALL;
+            }
+        }
     }
 }

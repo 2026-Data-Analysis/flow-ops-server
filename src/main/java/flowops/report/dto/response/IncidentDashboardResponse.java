@@ -32,7 +32,9 @@ public record IncidentDashboardResponse(
             @Schema(description = "현재 값", example = "24.0")
             double value,
             @Schema(description = "이전 기간 대비 증감률(%)", example = "12.5")
-            double vsLastPeriodPercent
+            double vsLastPeriodPercent,
+            @Schema(description = "이전 기간 대비 증감값", example = "3.0")
+            double vsLastPeriodValue
     ) {
     }
 
@@ -42,7 +44,11 @@ public record IncidentDashboardResponse(
             @Schema(description = "성공 테스트 수", example = "14")
             int passedTests,
             @Schema(description = "실패 테스트 수", example = "3")
-            int failedTests
+            int failedTests,
+            @Schema(description = "성공 API 수", example = "14")
+            int passedApiCount,
+            @Schema(description = "실패 API 수", example = "3")
+            int failedApiCount
     ) {
     }
 

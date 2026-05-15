@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 public record ScenarioSummaryResponse(
         @Schema(description = "시나리오 ID", example = "300")
         Long id,
+        @Schema(description = "환경 ID", example = "3")
+        Long environmentId,
         @Schema(description = "시나리오 이름", example = "결제 승인 후 취소 시나리오")
         String name,
         @Schema(description = "시나리오 설명", example = "승인 이후 취소까지 이어지는 결제 흐름")
@@ -23,6 +25,7 @@ public record ScenarioSummaryResponse(
     public static ScenarioSummaryResponse from(Scenario scenario, long steps) {
         return new ScenarioSummaryResponse(
                 scenario.getId(),
+                scenario.getEnvironment() == null ? null : scenario.getEnvironment().getId(),
                 scenario.getName(),
                 scenario.getDescription(),
                 scenario.getType(),

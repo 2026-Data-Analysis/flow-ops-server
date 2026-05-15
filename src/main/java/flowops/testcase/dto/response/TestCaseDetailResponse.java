@@ -50,7 +50,7 @@ public record TestCaseDetailResponse(
         return new TestCaseDetailResponse(
                 testCase.getId(),
                 testCase.getApp().getId(),
-                testCase.getApiEndpoint().getId(),
+                testCase.getApiInventory() == null ? testCase.getApiEndpoint().getId() : testCase.getApiInventory().getId(),
                 testCase.getName(),
                 testCase.getDescription(),
                 testCase.getType(),

@@ -13,6 +13,8 @@ import flowops.environment.dto.response.ConnectionTestResponse;
 import flowops.environment.dto.response.EnvironmentResponse;
 import flowops.environment.repository.EnvironmentRepository;
 import flowops.execution.repository.ExecutionRepository;
+import flowops.github.domain.entity.RepositoryInfo;
+import flowops.github.service.GithubService;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import java.time.Duration;
@@ -44,13 +46,16 @@ public class EnvironmentService {
     private final ExecutionRepository executionRepository;
     private final ApiEndpointRepository apiEndpointRepository;
     private final CoverageService coverageService;
+    private final GithubService githubService;
     private final WebClient.Builder webClientBuilder;
 
     @Transactional
     public EnvironmentResponse createEnvironment(Long appId, CreateEnvironmentRequest request) {
         App app = appService.getApp(appId);
+        RepositoryInfo repositoryInfo = request.repositoryId() == null ? null : githubService.getRepository(request.repositoryId());
         Environment environment = environmentRepository.save(Environment.builder()
                 .app(app)
+                .repositoryInfo(repositoryInfo)
                 .name(request.name())
                 .branchName(request.branchName())
                 .baseUrl(request.baseUrl())
@@ -75,7 +80,11 @@ public class EnvironmentService {
     @Transactional
     public EnvironmentResponse updateEnvironment(Long environmentId, UpdateEnvironmentRequest request) {
         Environment environment = getEnvironment(environmentId);
+        RepositoryInfo repositoryInfo = request.repositoryId() == null
+                ? environment.getRepositoryInfo()
+                : githubService.getRepository(request.repositoryId());
         environment.update(
+                repositoryInfo,
                 request.name(),
                 request.branchName(),
                 request.baseUrl(),

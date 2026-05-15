@@ -19,6 +19,8 @@ public record ApiInventoryResponse(
         ApiHttpMethod method,
         @Schema(description = "엔드포인트 경로", example = "/orders/{orderId}")
         String endpointPath,
+        @Schema(description = "도메인 태그", example = "ORDER")
+        String domainTag,
         @Schema(description = "오퍼레이션 ID", example = "getOrder")
         String operationId,
         @Schema(description = "브랜치명", example = "main")
@@ -44,6 +46,7 @@ public record ApiInventoryResponse(
 ) {
     public static ApiInventoryResponse from(
             ApiInventory apiInventory,
+            String domainTag,
             List<TestLevel> testLevels,
             long totalTestCount,
             double coveragePercentage
@@ -54,6 +57,7 @@ public record ApiInventoryResponse(
                 apiInventory.getRepositoryInfo() == null ? null : apiInventory.getRepositoryInfo().getId(),
                 apiInventory.getMethod(),
                 apiInventory.getEndpointPath(),
+                domainTag,
                 apiInventory.getOperationId(),
                 apiInventory.getBranchName(),
                 apiInventory.getSummary(),

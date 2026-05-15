@@ -41,7 +41,7 @@ public record GeneratedTestCaseDraftResponse(
         return new GeneratedTestCaseDraftResponse(
                 draft.getId(),
                 draft.getGeneration().getId(),
-                draft.getApiEndpoint().getId(),
+                draft.getApiInventory() == null ? draft.getApiEndpoint().getId() : draft.getApiInventory().getId(),
                 draft.getTitle(),
                 draft.getDescription(),
                 draft.getType(),

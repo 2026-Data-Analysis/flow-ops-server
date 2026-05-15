@@ -13,6 +13,9 @@ public record CreateScenarioRequest(
         @NotNull(message = "앱 ID는 필수입니다.")
         Long appId,
 
+        @Schema(description = "환경 ID", example = "3")
+        Long environmentId,
+
         @Schema(description = "시나리오 이름", example = "결제 승인 후 취소 시나리오")
         @NotBlank(message = "시나리오 이름은 필수입니다.")
         String name,
