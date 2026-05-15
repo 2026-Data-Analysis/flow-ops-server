@@ -41,6 +41,9 @@ public class ExecutionStepLog {
     @JoinColumn(name = "scenario_step_id")
     private ScenarioStep scenarioStep;
 
+    @Column(name = "step_order")
+    private Integer stepOrder;
+
     @Column(name = "step_name", nullable = false, length = 200)
     private String stepName;
 
@@ -83,6 +86,7 @@ public class ExecutionStepLog {
             Execution execution,
             TestCase testCase,
             ScenarioStep scenarioStep,
+            Integer stepOrder,
             String stepName,
             String method,
             String path,
@@ -99,6 +103,7 @@ public class ExecutionStepLog {
         this.execution = execution;
         this.testCase = testCase;
         this.scenarioStep = scenarioStep;
+        this.stepOrder = stepOrder;
         this.stepName = stepName;
         this.method = method;
         this.path = path;

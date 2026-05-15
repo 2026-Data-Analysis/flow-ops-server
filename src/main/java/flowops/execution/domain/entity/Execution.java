@@ -61,6 +61,9 @@ public class Execution {
     @Column(name = "test_level", nullable = false, length = 20)
     private TestLevel testLevel;
 
+    @Column(nullable = false, length = 200)
+    private String name;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ExecutionStatus status;
@@ -76,6 +79,12 @@ public class Execution {
 
     @Column(name = "avg_duration_ms")
     private Long avgDurationMs;
+
+    @Column(name = "total_duration_ms")
+    private Long totalDurationMs;
+
+    @Column(columnDefinition = "TEXT")
+    private String summary;
 
     @Column(name = "created_by", nullable = false, length = 120)
     private String createdBy;
@@ -98,11 +107,14 @@ public class Execution {
             ExecutionTriggerSource triggerSource,
             ExecutionMode executionMode,
             TestLevel testLevel,
+            String name,
             ExecutionStatus status,
             Integer totalCount,
             Integer passedCount,
             Integer failedCount,
             Long avgDurationMs,
+            Long totalDurationMs,
+            String summary,
             String createdBy,
             LocalDateTime startedAt,
             LocalDateTime endedAt,
@@ -115,11 +127,14 @@ public class Execution {
         this.triggerSource = triggerSource;
         this.executionMode = executionMode;
         this.testLevel = testLevel;
+        this.name = name;
         this.status = status;
         this.totalCount = totalCount;
         this.passedCount = passedCount;
         this.failedCount = failedCount;
         this.avgDurationMs = avgDurationMs;
+        this.totalDurationMs = totalDurationMs;
+        this.summary = summary;
         this.createdBy = createdBy;
         this.startedAt = startedAt;
         this.endedAt = endedAt;
@@ -131,13 +146,20 @@ public class Execution {
         this.startedAt = LocalDateTime.now();
     }
 
-    public void complete(int totalCount, int passedCount, int failedCount, long avgDurationMs) {
+    public void complete(int totalCount, int passedCount, int failedCount, long avgDurationMs, long totalDurationMs, String summary) {
         this.totalCount = totalCount;
         this.passedCount = passedCount;
         this.failedCount = failedCount;
         this.avgDurationMs = avgDurationMs;
+        this.totalDurationMs = totalDurationMs;
+        this.summary = summary;
         this.status = failedCount == 0 ? ExecutionStatus.SUCCESS : (passedCount > 0 ? ExecutionStatus.PARTIAL_FAILED : ExecutionStatus.FAILED);
         this.endedAt = LocalDateTime.now();
+    }
+
+    public void complete(int totalCount, int passedCount, int failedCount, long avgDurationMs) {
+        long totalDuration = avgDurationMs * Math.max(totalCount, 0);
+        complete(totalCount, passedCount, failedCount, avgDurationMs, totalDuration, null);
     }
 
     public void cancel() {

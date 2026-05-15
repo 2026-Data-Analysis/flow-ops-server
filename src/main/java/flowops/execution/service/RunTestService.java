@@ -12,6 +12,7 @@ import flowops.execution.domain.entity.ExecutionStatus;
 import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.execution.domain.entity.ExecutionStepStatus;
 import flowops.execution.domain.entity.ExecutionType;
+import flowops.execution.domain.entity.TestValidationResult;
 import flowops.execution.dto.request.CreateExecutionRequest;
 import flowops.execution.dto.request.GenerateFailureTestCasesRequest;
 import flowops.execution.dto.request.RunApisExecutionRequest;
@@ -21,6 +22,7 @@ import flowops.execution.dto.response.ExecutionStepLogResponse;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
 import flowops.execution.repository.ExecutionRepository;
 import flowops.execution.repository.ExecutionStepLogRepository;
+import flowops.execution.repository.TestValidationResultRepository;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.scenario.domain.entity.Scenario;
@@ -52,6 +54,7 @@ public class RunTestService {
 
     private final ExecutionRepository executionRepository;
     private final ExecutionStepLogRepository executionStepLogRepository;
+    private final TestValidationResultRepository testValidationResultRepository;
     private final AppService appService;
     private final EnvironmentService environmentService;
     private final ApiEndpointService apiEndpointService;
@@ -73,6 +76,7 @@ public class RunTestService {
                 .triggerSource(request.triggerSource())
                 .executionMode(request.executionMode())
                 .testLevel(executionTestLevel)
+                .name(resolveExecutionName(request.executionType(), request.targetId()))
                 .status(ExecutionStatus.QUEUED)
                 .totalCount(0)
                 .passedCount(0)
@@ -108,6 +112,7 @@ public class RunTestService {
                 .triggerSource(flowops.execution.domain.entity.ExecutionTriggerSource.MANUAL)
                 .executionMode(request.executionMode())
                 .testLevel(executionTestLevel)
+                .name(request.apiIds().size() == 1 ? "API execution" : "API batch execution")
                 .status(ExecutionStatus.QUEUED)
                 .totalCount(0)
                 .passedCount(0)
@@ -140,6 +145,7 @@ public class RunTestService {
                 .triggerSource(flowops.execution.domain.entity.ExecutionTriggerSource.MANUAL)
                 .executionMode(request.executionMode() == null ? ExecutionMode.RUN_EXISTING : request.executionMode())
                 .testLevel(executionTestLevel)
+                .name("Quick Test")
                 .status(ExecutionStatus.QUEUED)
                 .totalCount(0)
                 .passedCount(0)
@@ -205,6 +211,7 @@ public class RunTestService {
                 .triggerSource(previous.getTriggerSource())
                 .executionMode(previous.getExecutionMode())
                 .testLevel(previous.getTestLevel())
+                .name(previous.getName() + " (rerun failed)")
                 .status(ExecutionStatus.QUEUED)
                 .totalCount(0)
                 .passedCount(0)
@@ -220,6 +227,7 @@ public class RunTestService {
                     .execution(rerun)
                     .testCase(failed.getTestCase())
                     .scenarioStep(failed.getScenarioStep())
+                    .stepOrder(failed.getStepOrder())
                     .stepName(failed.getStepName() + " (rerun)")
                     .method(failed.getMethod())
                     .path(failed.getPath())
@@ -257,11 +265,15 @@ public class RunTestService {
 
     private void completeExecution(Execution execution, List<ExecutionStepLog> logs) {
         long totalDuration = logs.stream().mapToLong(log -> log.getDurationMs() == null ? 0L : log.getDurationMs()).sum();
+        int failedCount = (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count();
+        int passedCount = (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.SUCCESS).count();
         execution.complete(
                 logs.size(),
-                (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.SUCCESS).count(),
-                (int) logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count(),
-                logs.isEmpty() ? 0L : totalDuration / logs.size()
+                passedCount,
+                failedCount,
+                logs.isEmpty() ? 0L : totalDuration / logs.size(),
+                totalDuration,
+                "Passed " + passedCount + " of " + logs.size() + " steps."
         );
     }
 
@@ -331,6 +343,20 @@ public class RunTestService {
         return requestedTestLevel == null ? environment.getDefaultTestLevel() : requestedTestLevel;
     }
 
+    private String resolveExecutionName(ExecutionType executionType, Long targetId) {
+        if (executionType == ExecutionType.API) {
+            ApiEndpoint api = apiEndpointService.getApiEndpoint(targetId);
+            return api.getMethod() + " " + api.getPath();
+        }
+        if (executionType == ExecutionType.TEST_CASE) {
+            return testCaseService.getActiveTestCase(targetId).getName();
+        }
+        if (executionType == ExecutionType.SCENARIO) {
+            return scenarioService.getScenario(targetId).getName();
+        }
+        return "API batch execution";
+    }
+
     private ExecutionStepLog resolveFailedLog(List<ExecutionStepLog> failedLogs, Long failedLogId) {
         if (failedLogId == null) {
             return failedLogs.get(0);
@@ -376,22 +402,65 @@ public class RunTestService {
             boolean fail
     ) {
         LocalDateTime startedAt = LocalDateTime.now();
-        return executionStepLogRepository.save(ExecutionStepLog.builder()
+        ExecutionStepLog log = executionStepLogRepository.save(ExecutionStepLog.builder()
                 .execution(execution)
                 .testCase(testCase)
                 .scenarioStep(scenarioStep)
+                .stepOrder(scenarioStep == null ? null : scenarioStep.getStepOrder())
                 .stepName(stepName)
                 .method(method)
                 .path(path)
                 .status(fail ? ExecutionStepStatus.FAILED : ExecutionStepStatus.SUCCESS)
-                .requestBody("{\"request\":\"mock\"}")
-                .responseBody(fail ? "{\"error\":\"mock failure\"}" : "{\"result\":\"mock success\"}")
+                .requestBody(buildMockRequestBody(path, fail))
+                .responseBody(fail ? "{\"code\":\"INTERNAL_ERROR\",\"message\":\"Unexpected server error\"}" : "{\"result\":\"mock success\"}")
                 .responseCode(fail ? 500 : 200)
                 .durationMs(fail ? 250L : 150L)
-                .errorMessage(fail ? "Mock execution failure for placeholder engine." : null)
+                .errorMessage(fail ? "Expected validation error, but API returned an internal server error." : null)
                 .startedAt(startedAt)
                 .endedAt(startedAt.plusNanos((fail ? 250L : 150L) * 1_000_000))
                 .createdAt(startedAt)
+                .build());
+        saveValidationResults(log, fail);
+        return log;
+    }
+
+    private String buildMockRequestBody(String path, boolean fail) {
+        if (fail && path != null && path.contains("/auth/login")) {
+            return "{\"password\":\"test1234\"}";
+        }
+        return "{\"request\":\"mock\"}";
+    }
+
+    private void saveValidationResults(ExecutionStepLog log, boolean fail) {
+        if (fail) {
+            testValidationResultRepository.save(TestValidationResult.builder()
+                    .executionStep(log)
+                    .assertionName("status code is 400")
+                    .expectedValue("400")
+                    .actualValue(String.valueOf(log.getResponseCode()))
+                    .passed(false)
+                    .message("Expected HTTP 400 validation error.")
+                    .createdAt(log.getCreatedAt())
+                    .build());
+            testValidationResultRepository.save(TestValidationResult.builder()
+                    .executionStep(log)
+                    .assertionName("error code is VALIDATION_ERROR")
+                    .expectedValue("VALIDATION_ERROR")
+                    .actualValue("INTERNAL_ERROR")
+                    .passed(false)
+                    .message("API returned INTERNAL_ERROR instead of validation error.")
+                    .createdAt(log.getCreatedAt())
+                    .build());
+            return;
+        }
+        testValidationResultRepository.save(TestValidationResult.builder()
+                .executionStep(log)
+                .assertionName("status code is 2xx")
+                .expectedValue("2xx")
+                .actualValue(String.valueOf(log.getResponseCode()))
+                .passed(true)
+                .message("Response status matched the success criteria.")
+                .createdAt(log.getCreatedAt())
                 .build());
     }
 }
