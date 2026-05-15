@@ -75,5 +75,6 @@ public class ApiEndpointService {
     @Transactional(readOnly = true)
     public ApiEndpoint findFirstByMethodAndPath(ApiMethod method, String path) {
         return apiEndpointRepository.findFirstByMethodAndPath(method, path)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 엔드포인트를 찾을 수 없습니다."));
     }
 }
