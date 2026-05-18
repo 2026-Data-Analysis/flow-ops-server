@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "API Endpoint", description = "앱별 API 엔드포인트 조회 API")
+@Tag(name = "API 엔드포인트", description = "앱별 API 엔드포인트 조회 API")
 public class ApiEndpointController {
 
     private final ApiEndpointService apiEndpointService;

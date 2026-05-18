@@ -24,6 +24,7 @@ public record ExternalServiceProperties(
     public record Ai(
             String baseUrl,
             String apiKey,
+            boolean mockEnabled,
             int connectTimeoutMillis,
             int readTimeoutMillis
     ) {

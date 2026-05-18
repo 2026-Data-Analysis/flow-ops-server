@@ -1,0 +1,3 @@
+external:
+  ai:
+    mock-enabled: ${AI_MOCK_ENABLED:true}

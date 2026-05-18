@@ -61,6 +61,7 @@ external:
   ai:
     base-url: ${AI_SERVER_BASE_URL:http://localhost:8000}
     api-key: ${AI_SERVER_API_KEY:}
+    mock-enabled: ${AI_MOCK_ENABLED:true}
     connect-timeout-millis: ${AI_CONNECT_TIMEOUT_MILLIS:3000}
     read-timeout-millis: ${AI_READ_TIMEOUT_MILLIS:10000}
 

@@ -11,6 +11,16 @@ import flowops.aiintegration.dto.response.GenerateTestCasesResponse;
 import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
+import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
+import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
+import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
+import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
+import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
+import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
+import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierResponse;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
@@ -49,6 +59,31 @@ public class AiWebClient implements AiClient {
     @Override
     public AssistantQueryResponse askAssistant(AssistantQueryRequest request) {
         return post("/assistant/query", request, AssistantQueryResponse.class);
+    }
+
+    @Override
+    public TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request) {
+        return post("/agents/test-cases/generate", request, TestCaseGeneratorResponse.class);
+    }
+
+    @Override
+    public ScenarioBuilderResponse buildScenario(ScenarioBuilderRequest request) {
+        return post("/agents/scenarios/build", request, ScenarioBuilderResponse.class);
+    }
+
+    @Override
+    public LogAnalysisResponse analyzeLog(LogAnalysisRequest request) {
+        return post("/agents/logs/analyze", request, LogAnalysisResponse.class);
+    }
+
+    @Override
+    public ErrorReportResponse generateErrorReport(ErrorReportRequest request) {
+        return post("/agents/error-reports/generate", request, ErrorReportResponse.class);
+    }
+
+    @Override
+    public TestStrategyClassifierResponse classifyTestStrategy(TestStrategyClassifierRequest request) {
+        return post("/agents/test-strategy/classify", request, TestStrategyClassifierResponse.class);
     }
 
     private <T, R> R post(String path, T request, Class<R> responseType) {

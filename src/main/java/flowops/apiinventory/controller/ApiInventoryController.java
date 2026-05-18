@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/projects/{projectId}/api-inventories")
 @RequiredArgsConstructor
-@Tag(name = "Legacy API Inventory", description = "기존 API 인벤토리 저장 API")
+@Tag(name = "레거시 API 인벤토리", description = "기존 API 인벤토리 저장 API")
 public class ApiInventoryController {
 
     private final ApiInventoryService apiInventoryService;

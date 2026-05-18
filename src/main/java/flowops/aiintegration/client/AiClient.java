@@ -8,6 +8,16 @@ import flowops.aiintegration.dto.response.AnalyzeSpecResponse;
 import flowops.aiintegration.dto.response.AssistantQueryResponse;
 import flowops.aiintegration.dto.response.GenerateScenarioResponse;
 import flowops.aiintegration.dto.response.GenerateTestCasesResponse;
+import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
+import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
+import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
+import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
+import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
+import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
+import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierResponse;
 
 public interface AiClient {
     AnalyzeSpecResponse analyzeSpec(AnalyzeSpecRequest request);
@@ -17,4 +27,14 @@ public interface AiClient {
     GenerateScenarioResponse generateScenario(GenerateScenarioRequest request);
 
     AssistantQueryResponse askAssistant(AssistantQueryRequest request);
+
+    TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request);
+
+    ScenarioBuilderResponse buildScenario(ScenarioBuilderRequest request);
+
+    LogAnalysisResponse analyzeLog(LogAnalysisRequest request);
+
+    ErrorReportResponse generateErrorReport(ErrorReportRequest request);
+
+    TestStrategyClassifierResponse classifyTestStrategy(TestStrategyClassifierRequest request);
 }

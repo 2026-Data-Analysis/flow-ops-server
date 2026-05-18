@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/projects/{projectId}/repositories")
 @RequiredArgsConstructor
-@Tag(name = "Repository", description = "GitHub 저장소 등록 및 스캔 API")
+@Tag(name = "저장소", description = "GitHub 저장소 등록 및 스캔 API")
 public class GithubController {
 
     private final GithubService githubService;

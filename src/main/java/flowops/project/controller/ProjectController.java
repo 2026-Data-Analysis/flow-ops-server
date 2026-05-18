@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/projects")
 @RequiredArgsConstructor
-@Tag(name = "Legacy Project", description = "기존 프로젝트 생성 API")
+@Tag(name = "레거시 프로젝트", description = "기존 프로젝트 생성 API")
 public class ProjectController {
 
     private final ProjectService projectService;

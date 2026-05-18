@@ -18,13 +18,13 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Report", description = "인시던트 리포트 생성 API")
+@Tag(name = "리포트", description = "인시던트 리포트 생성 API")
 public class ReportController {
 
     private final ReportService reportService;
 
     @PostMapping("/projects/{projectId}/reports/incidents")
-    @Operation(summary = "인시던트 리포트 생성", description = "Incident와 target audience를 입력 받아 AI 친화적인 리포트 초안을 생성합니다.")
+    @Operation(summary = "인시던트 리포트 생성", description = "인시던트와 보고 대상을 입력받아 AI 연동에 적합한 리포트 초안을 생성합니다.")
     public ApiResponse<ReportResponse> createIncidentReport(
             @PathVariable Long projectId,
             @Valid @RequestBody CreateIncidentReportRequest request

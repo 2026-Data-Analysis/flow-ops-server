@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/github/webhooks")
 @RequiredArgsConstructor
-@Tag(name = "GitHub Webhook", description = "GitHub webhook 기반 자동 트리거 API")
+@Tag(name = "GitHub 웹훅", description = "GitHub 웹훅 기반 자동 트리거 API")
 public class GithubWebhookController {
 
     private final GithubWebhookService githubWebhookService;

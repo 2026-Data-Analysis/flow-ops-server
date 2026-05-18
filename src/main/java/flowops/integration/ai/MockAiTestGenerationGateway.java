@@ -3,9 +3,11 @@ package flowops.integration.ai;
 import flowops.testgeneration.domain.entity.TestGeneration;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(prefix = "external.ai", name = "mock-enabled", havingValue = "true", matchIfMissing = true)
 public class MockAiTestGenerationGateway implements AiTestGenerationGateway {
 
     @Override

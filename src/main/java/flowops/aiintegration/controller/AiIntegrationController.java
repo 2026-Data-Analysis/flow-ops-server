@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/projects/{projectId}/ai")
 @RequiredArgsConstructor
-@Tag(name = "Legacy AI Integration", description = "기존 AI 분석 API")
+@Tag(name = "레거시 AI 연동", description = "기존 AI 분석 API")
 public class AiIntegrationController {
 
     private final AiSuggestionService aiSuggestionService;

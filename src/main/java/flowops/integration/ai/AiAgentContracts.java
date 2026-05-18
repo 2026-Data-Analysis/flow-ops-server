@@ -1,0 +1,426 @@
+package flowops.integration.ai;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public final class AiAgentContracts {
+
+    private AiAgentContracts() {
+    }
+
+    @Schema(description = "AI 연동 공통 프로젝트 정보")
+    public record ProjectPayload(
+            Long projectId,
+            Long appId,
+            String appName
+    ) {
+    }
+
+    @Schema(description = "AI 연동 공통 실행 환경 정보")
+    public record EnvironmentPayload(
+            Long environmentId,
+            String name,
+            String baseUrl,
+            String defaultTestLevel
+    ) {
+    }
+
+    @Schema(description = "AI 연동 공통 메타데이터")
+    public record MetadataPayload(
+            String language,
+            LocalDateTime createdAt,
+            String source
+    ) {
+    }
+
+    @Schema(description = "AI 요청에 전달되는 API 엔드포인트 정보. endpoint_id와 스키마 필드는 AI 서버 계약 필드명을 사용합니다.")
+    public record ApiPayload(
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
+            String method,
+            String path,
+            String domainTag,
+            @JsonProperty("request_body_schema")
+            JsonNode request_body_schema,
+            @JsonProperty("response_schema")
+            JsonNode response_schema,
+            Boolean authRequired,
+            Boolean deprecated,
+            String businessCriticality
+    ) {
+    }
+
+    @Schema(description = "테스트 케이스 생성 요청 컨텍스트")
+    public record TestGenerationContext(
+            Long generationId,
+            String mode,
+            String testLevel,
+            Double currentCoverage,
+            Double targetCoverage,
+            String contextSummary
+    ) {
+    }
+
+    @Schema(description = "기존 테스트 케이스 요약 정보")
+    public record ExistingTestCasePayload(
+            Long testCaseId,
+            Long apiId,
+            String name,
+            String type,
+            String testLevel,
+            String requestSpec,
+            String expectedSpec,
+            String assertionSpec
+    ) {
+    }
+
+    @Schema(description = "실패 기반 테스트 생성을 위한 실패 컨텍스트")
+    public record FailureContextPayload(
+            Long executionId,
+            Long stepId,
+            Integer statusCode,
+            String requestBody,
+            String responseBody,
+            String errorMessage,
+            String expected,
+            String actual
+    ) {
+    }
+
+    @Schema(description = "테스트 케이스 생성 AI 에이전트 요청")
+    public record TestCaseGeneratorRequest(
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            TestGenerationContext generationContext,
+            List<ApiPayload> apis,
+            List<ExistingTestCasePayload> existingTestCases,
+            FailureContextPayload failureContext
+    ) {
+    }
+
+    @Schema(description = "테스트 케이스 생성 AI 에이전트가 반환한 초안")
+    public record TestCaseDraftPayload(
+            Long apiId,
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
+            String title,
+            String description,
+            String type,
+            String userRole,
+            String stateCondition,
+            String dataVariant,
+            String requestSpec,
+            String expectedSpec,
+            String assertionSpec,
+            boolean duplicate
+    ) {
+    }
+
+    @Schema(description = "테스트 케이스 생성 AI 에이전트 응답")
+    public record TestCaseGeneratorResponse(
+            List<TestCaseDraftPayload> drafts
+    ) {
+    }
+
+    @Schema(description = "시나리오 생성 요청 컨텍스트. user_intent와 mode는 AI 서버 계약 필드명을 사용합니다.")
+    public record ScenarioContextPayload(
+            Long appId,
+            @JsonProperty("user_intent")
+            String user_intent,
+            String mode,
+            String testLevel,
+            String businessDomain
+    ) {
+    }
+
+    @Schema(description = "기존 시나리오 요약 정보")
+    public record ExistingScenarioPayload(
+            Long scenarioId,
+            String name,
+            String type,
+            List<ExistingScenarioStepPayload> steps
+    ) {
+    }
+
+    @Schema(description = "기존 시나리오 스텝 요약 정보")
+    public record ExistingScenarioStepPayload(
+            Integer stepOrder,
+            Long apiId,
+            String label
+    ) {
+    }
+
+    @Schema(description = "시나리오 빌더 AI 에이전트 요청")
+    public record ScenarioBuilderRequest(
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            ScenarioContextPayload scenarioContext,
+            List<ApiPayload> apis,
+            List<ExistingScenarioPayload> existingScenarios
+    ) {
+    }
+
+    @Schema(description = "시나리오 빌더 AI 에이전트 응답")
+    public record ScenarioBuilderResponse(
+            String name,
+            String description,
+            String type,
+            MetaPayload meta,
+            List<ScenarioStepPayload> steps
+    ) {
+    }
+
+    @Schema(description = "AI 추천 메타데이터")
+    public record MetaPayload(
+            String rationale
+    ) {
+    }
+
+    @Schema(description = "AI가 반환한 시나리오 스텝. order, endpoint_id, name 등은 응답 변환 대상 필드입니다.")
+    public record ScenarioStepPayload(
+            Integer order,
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
+            String name,
+            @JsonProperty("static_payload")
+            String static_payload,
+            @JsonProperty("expected_assertions")
+            String expected_assertions,
+            @JsonProperty("chained_variables")
+            String chained_variables
+    ) {
+    }
+
+    @Schema(description = "검증 assertion 결과")
+    public record AssertionPayload(
+            String name,
+            String expected,
+            String actual,
+            boolean passed
+    ) {
+    }
+
+    @Schema(description = "로그 분석용 검증 실패 정보")
+    public record ValidationPayload(
+            String errorMessage,
+            String expected,
+            String actual,
+            List<AssertionPayload> assertions
+    ) {
+    }
+
+    @Schema(description = "로그 분석용 HTTP 요청/응답 정보")
+    public record HttpPayload(
+            String method,
+            String path,
+            String status,
+            Integer statusCode,
+            Long durationMs,
+            JsonNode requestBody,
+            JsonNode responseBody
+    ) {
+    }
+
+    @Schema(description = "로그 분석 요청 컨텍스트")
+    public record LogContextPayload(
+            Long executionId,
+            Long stepId,
+            String executionName,
+            String stepName,
+            String environment,
+            String testLevel,
+            LocalDateTime timestamp
+    ) {
+    }
+
+    @Schema(description = "분석 대상 주변 로그 요약")
+    public record NearbyLogPayload(
+            Long stepId,
+            String stepName,
+            String status,
+            Long durationMs
+    ) {
+    }
+
+    @Schema(description = "로그 분석 AI 에이전트 요청")
+    public record LogAnalysisRequest(
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            LogContextPayload logContext,
+            HttpPayload http,
+            ValidationPayload validation,
+            List<NearbyLogPayload> nearbyLogs
+    ) {
+    }
+
+    @Schema(description = "로그 분석 AI 에이전트 응답")
+    public record LogAnalysisResponse(
+            String diagnosis,
+            String failureCategory,
+            String severity,
+            double confidence,
+            List<String> likelyCauses,
+            List<String> recommendedActions,
+            ReproductionPayload reproduction,
+            List<SuggestedTestCasePayload> suggestedTestCases
+    ) {
+    }
+
+    @Schema(description = "실패 재현 요청 정보")
+    public record ReproductionPayload(
+            String method,
+            String path,
+            JsonNode body,
+            Integer expectedStatusCode
+    ) {
+    }
+
+    @Schema(description = "로그 분석 결과 기반 추천 테스트 케이스")
+    public record SuggestedTestCasePayload(
+            String title,
+            String type,
+            String expectedSpec
+    ) {
+    }
+
+    @Schema(description = "장애 리포트용 실행 요약")
+    public record ExecutionPayload(
+            Long executionId,
+            String name,
+            String status,
+            String environment,
+            String testLevel,
+            LocalDateTime startedAt,
+            LocalDateTime finishedAt,
+            Integer totalCount,
+            Integer passedCount,
+            Integer failedCount,
+            String summary
+    ) {
+    }
+
+    @Schema(description = "장애 리포트용 실패 스텝 정보")
+    public record FailedStepPayload(
+            Long stepId,
+            String stepName,
+            String method,
+            String path,
+            Integer statusCode,
+            Long durationMs,
+            String requestBody,
+            String responseBody,
+            String errorMessage,
+            String expected,
+            String actual
+    ) {
+    }
+
+    @Schema(description = "장애 리포트 요청 컨텍스트")
+    public record ReportContextPayload(
+            Long projectId,
+            String targetAudience,
+            String incident,
+            String additionalContext
+    ) {
+    }
+
+    @Schema(description = "장애 리포트 AI 에이전트 요청")
+    public record ErrorReportRequest(
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            ReportContextPayload reportContext,
+            ExecutionPayload execution,
+            List<FailedStepPayload> failedSteps,
+            LogAnalysisResponse logAnalysis
+    ) {
+    }
+
+    @Schema(description = "장애 리포트 AI 에이전트 응답")
+    public record ErrorReportResponse(
+            String title,
+            String summary,
+            String impact,
+            String rootCauseHypothesis,
+            List<String> nextActions,
+            List<String> recommendedChannels,
+            String customerMessage,
+            String internalNotes,
+            String severity,
+            Double confidence
+    ) {
+    }
+
+    @Schema(description = "테스트 위험도 분류 요청 컨텍스트")
+    public record ClassificationContextPayload(
+            String source,
+            String defaultTestLevel,
+            String policyVersion,
+            String goal
+    ) {
+    }
+
+    @Schema(description = "위험도 분류 대상 테스트 후보")
+    public record CandidateTestCasePayload(
+            String candidateId,
+            String title,
+            String description,
+            String type,
+            String userRole,
+            String stateCondition,
+            String dataVariant,
+            String requestSpec,
+            String expectedSpec,
+            String assertionSpec,
+            Boolean generatedFromFailure,
+            String failureCategory,
+            Integer previousFailureCount,
+            Long historicalAvgDurationMs,
+            Boolean coverageGap
+    ) {
+    }
+
+    @Schema(description = "테스트 위험도 분류 AI 에이전트 요청")
+    public record TestStrategyClassifierRequest(
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            ClassificationContextPayload classificationContext,
+            ApiPayload api,
+            List<CandidateTestCasePayload> candidateTestCases
+    ) {
+    }
+
+    @Schema(description = "분류된 테스트 초안의 테스트 레벨")
+    public record ClassifiedDraftPayload(
+            String testLevel
+    ) {
+    }
+
+    @Schema(description = "테스트 위험도 분류 AI 에이전트 응답")
+    public record TestStrategyClassifierResponse(
+            List<ClassifiedDraftPayload> drafts
+    ) {
+    }
+}

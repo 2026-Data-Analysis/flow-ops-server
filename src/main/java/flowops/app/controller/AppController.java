@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/apps")
 @RequiredArgsConstructor
-@Tag(name = "App", description = "애플리케이션 등록 및 상세 조회 API")
+@Tag(name = "앱", description = "애플리케이션 등록 및 상세 조회 API")
 public class AppController {
 
     private final AppService appService;

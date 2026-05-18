@@ -15,3 +15,7 @@ springdoc:
     enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
   swagger-ui:
     enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+
+external:
+  ai:
+    mock-enabled: ${AI_MOCK_ENABLED:false}

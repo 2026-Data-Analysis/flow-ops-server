@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Environment", description = "실행 환경 및 트리거 규칙 관리 API")
+@Tag(name = "실행 환경", description = "실행 환경 및 트리거 규칙 관리 API")
 public class EnvironmentController {
 
     private final EnvironmentService environmentService;

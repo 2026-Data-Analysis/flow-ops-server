@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Scenario", description = "시나리오 추천 및 빌더 관리 API")
+@Tag(name = "시나리오", description = "시나리오 추천 및 빌더 관리 API")
 public class ScenarioController {
 
     private final ScenarioService scenarioService;

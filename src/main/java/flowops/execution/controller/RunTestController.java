@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Run Test", description = "테스트 실행 요청 API")
+@Tag(name = "테스트 실행", description = "테스트 실행 요청 API")
 public class RunTestController {
 
     private final RunTestService runTestService;

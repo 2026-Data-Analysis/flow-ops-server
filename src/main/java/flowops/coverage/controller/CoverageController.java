@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Coverage", description = "커버리지 요약 및 실행 영향 조회 API")
+@Tag(name = "커버리지", description = "커버리지 요약 및 실행 영향 조회 API")
 public class CoverageController {
 
     private final CoverageService coverageService;

@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Test Generation", description = "AI 테스트 케이스 생성 요청 및 초안 저장 API")
+@Tag(name = "테스트 생성", description = "AI 테스트 케이스 생성 요청 및 초안 저장 API")
 public class TestGenerationController {
 
     private final TestGenerationService testGenerationService;

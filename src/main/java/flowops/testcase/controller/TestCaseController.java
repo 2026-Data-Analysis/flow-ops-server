@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Test Case", description = "테스트 케이스 조회 및 수정 API")
+@Tag(name = "테스트 케이스", description = "테스트 케이스 조회 및 수정 API")
 public class TestCaseController {
 
     private final TestCaseService testCaseService;

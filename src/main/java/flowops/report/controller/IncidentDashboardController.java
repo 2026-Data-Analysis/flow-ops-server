@@ -19,13 +19,13 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Incident Dashboard", description = "장애/실행 집계 대시보드 API")
+@Tag(name = "인시던트 대시보드", description = "장애/실행 집계 대시보드 API")
 public class IncidentDashboardController {
 
     private final IncidentDashboardService incidentDashboardService;
 
     @GetMapping("/apps/{appId}/incident-dashboard")
-    @Operation(summary = "Incident Dashboard 조회", description = "앱의 최근 실행/에러 로그를 집계해 Incident Dashboard 데이터를 반환합니다.")
+    @Operation(summary = "인시던트 대시보드 조회", description = "앱의 최근 실행과 오류 로그를 집계해 인시던트 대시보드 데이터를 반환합니다.")
     public ApiResponse<IncidentDashboardResponse> getDashboard(
             @PathVariable Long appId,
             @Parameter(description = "환경 ID 필터")

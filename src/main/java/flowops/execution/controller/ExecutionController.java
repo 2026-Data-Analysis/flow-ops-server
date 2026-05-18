@@ -23,13 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Execution", description = "Execution history and logs API")
+@Tag(name = "실행 이력", description = "실행 이력과 로그 조회 API")
 public class ExecutionController {
 
     private final ExecutionQueryService executionQueryService;
 
     @GetMapping("/executions")
-    @Operation(summary = "Execution list", description = "Returns execution summaries.")
+    @Operation(summary = "실행 목록 조회", description = "실행 이력 요약 목록을 조회합니다.")
     public ApiResponse<PageResponse<ExecutionSummaryResponse>> listExecutions(
             @RequestParam(required = false) Long environmentId,
             @RequestParam(required = false) TestLevel testLevel,
@@ -42,19 +42,19 @@ public class ExecutionController {
     }
 
     @GetMapping("/executions/{executionId}")
-    @Operation(summary = "Execution detail", description = "Returns an execution with step logs.")
+    @Operation(summary = "실행 상세 조회", description = "실행 정보와 스텝 로그를 함께 조회합니다.")
     public ApiResponse<ExecutionDetailResponse> getExecution(@PathVariable Long executionId) {
         return ApiResponse.success(executionQueryService.getExecution(executionId));
     }
 
     @GetMapping("/executions/{executionId}/logs")
-    @Operation(summary = "Execution step logs", description = "Returns step logs for a single execution.")
+    @Operation(summary = "실행 스텝 로그 조회", description = "단일 실행에 속한 스텝 로그 목록을 조회합니다.")
     public ApiResponse<List<ExecutionStepLogResponse>> getLogs(@PathVariable Long executionId) {
         return ApiResponse.success(executionQueryService.getLogs(executionId));
     }
 
     @GetMapping({"/api/v1/executions/logs", "/executions/logs"})
-    @Operation(summary = "Execution Logs list", description = "Returns step-based rows for the Execution Logs screen.")
+    @Operation(summary = "실행 로그 목록 조회", description = "Execution Logs 화면에서 사용할 스텝 단위 로그 목록을 조회합니다.")
     public ApiResponse<ExecutionLogListResponse> getExecutionLogs(
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "false") boolean failedOnly,
@@ -66,13 +66,13 @@ public class ExecutionController {
     }
 
     @GetMapping({"/api/v1/executions/logs/{stepId}", "/executions/logs/{stepId}"})
-    @Operation(summary = "Execution Log detail", description = "Returns request, response, and validation data for a step log.")
+    @Operation(summary = "실행 로그 상세 조회", description = "스텝 로그의 요청, 응답, 검증 결과를 상세 조회합니다.")
     public ApiResponse<ExecutionLogDetailResponse> getExecutionLogDetail(@PathVariable Long stepId) {
         return ApiResponse.success(executionQueryService.getExecutionLogDetail(stepId));
     }
 
     @GetMapping("/execution-step-logs/{logId}")
-    @Operation(summary = "Legacy execution step log detail", description = "Returns raw request and response bodies for a step log.")
+    @Operation(summary = "레거시 실행 스텝 로그 상세 조회", description = "스텝 로그의 원본 요청/응답 바디를 조회합니다.")
     public ApiResponse<ExecutionStepLogDetailResponse> getLogDetail(@PathVariable Long logId) {
         return ApiResponse.success(executionQueryService.getLogDetail(logId));
     }
