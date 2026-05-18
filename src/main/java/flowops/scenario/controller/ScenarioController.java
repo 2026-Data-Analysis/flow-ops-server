@@ -2,6 +2,7 @@ package flowops.scenario.controller;
 
 import flowops.global.response.ApiResponse;
 import flowops.scenario.dto.request.CreateScenarioRequest;
+import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
 import flowops.scenario.dto.request.UpdateScenarioRequest;
 import flowops.scenario.dto.response.ScenarioDetailResponse;
@@ -33,8 +34,10 @@ public class ScenarioController {
 
     @PostMapping("/scenarios/recommend")
     @Operation(summary = "시나리오 추천", description = "시나리오 빌더에서 사용할 추천 시나리오 목록을 반환합니다.")
-    public ApiResponse<List<ScenarioRecommendationResponse>> recommendScenarios() {
-        return ApiResponse.success(scenarioService.recommend());
+    public ApiResponse<List<ScenarioRecommendationResponse>> recommendScenarios(
+            @RequestBody(required = false) RecommendScenarioRequest request
+    ) {
+        return ApiResponse.success(scenarioService.recommend(request));
     }
 
     @PostMapping("/scenarios")

@@ -187,27 +187,29 @@ public class TestGenerationService {
                 .currentCoverage(toBigDecimal(currentCoverage))
                 .predictedCoverage(toPredictedCoverage(currentCoverage))
                 .existingCount(0)
-                .newCount(2)
+                .newCount(0)
                 .duplicateCount(0)
                 .createdAt(LocalDateTime.now())
-                .completedAt(LocalDateTime.now())
                 .build());
 
+        ApiEndpoint failedEndpoint = resolveApiEndpoint(failedLog);
         selectionRepository.save(TestGenerationApiSelection.builder()
                 .generation(generation)
-                .apiEndpoint(resolveApiEndpoint(failedLog))
+                .apiEndpoint(failedEndpoint)
                 .build());
 
-        List<GeneratedTestCaseDraft> drafts = List.of(
-                createFailureDraft(generation, failedLog, false),
-                createFailureRegressionDraft(generation, failedLog)
+        List<GeneratedTestCaseDraft> drafts = createDraftsFromCommands(
+                generation,
+                aiTestGenerationGateway.generateDraftsFromFailure(generation, execution, failedLog)
         );
+        long duplicateCount = drafts.stream().filter(GeneratedTestCaseDraft::isDuplicate).count();
+        generation.markCompleted(0, (int) (drafts.size() - duplicateCount), (int) duplicateCount, toPredictedCoverage(currentCoverage));
 
         return new GenerateFailureTestCasesResponse(
                 generation.getId(),
                 execution.getId(),
                 failedLog.getId(),
-                resolveApiEndpoint(failedLog).getId(),
+                failedEndpoint.getId(),
                 failedLog.getErrorMessage(),
                 expectedBehavior(failedLog),
                 actualBehavior(failedLog),
@@ -223,40 +225,11 @@ public class TestGenerationService {
         try {
             generation.markProcessing();
             List<AiGeneratedDraftCommand> commands = aiTestGenerationGateway.generateDrafts(generation, apiIds);
-            int duplicateCount = 0;
-            int newCount = 0;
-            for (AiGeneratedDraftCommand command : commands) {
-                ApiEndpoint apiEndpoint = apiEndpointService.getApiEndpoint(command.apiId());
-                ApiInventory apiInventory = apiInventoryRepository.findById(command.apiId()).orElse(null);
-                validateInventoryEnvironment(apiInventory, generation.getEnvironment());
-                if (apiInventory != null) {
-                    apiEndpoint = endpointForInventory(apiInventory);
-                }
-                draftRepository.save(GeneratedTestCaseDraft.builder()
-                        .generation(generation)
-                        .apiEndpoint(apiEndpoint)
-                        .apiInventory(apiInventory)
-                        .title(command.title())
-                        .description(command.description())
-                        .type(command.type())
-                        .userRole(command.userRole())
-                        .stateCondition(command.stateCondition())
-                        .dataVariant(command.dataVariant())
-                        .requestSpec(command.requestSpec())
-                        .expectedSpec(command.expectedSpec())
-                        .assertionSpec(command.assertionSpec())
-                        .duplicate(command.duplicate())
-                        .selectedForSave(false)
-                        .createdAt(LocalDateTime.now())
-                        .build());
-                if (command.duplicate()) {
-                    duplicateCount++;
-                } else {
-                    newCount++;
-                }
-            }
+            List<GeneratedTestCaseDraft> drafts = createDraftsFromCommands(generation, commands);
+            int duplicateCount = (int) drafts.stream().filter(GeneratedTestCaseDraft::isDuplicate).count();
+            int newCount = drafts.size() - duplicateCount;
             generation.markCompleted(
-                    commands.size() - duplicateCount,
+                    drafts.size() - duplicateCount,
                     newCount,
                     duplicateCount,
                     generation.getCurrentCoverage() == null
@@ -266,6 +239,36 @@ public class TestGenerationService {
         } catch (Exception exception) {
             generation.markFailed();
         }
+    }
+
+    private List<GeneratedTestCaseDraft> createDraftsFromCommands(TestGeneration generation, List<AiGeneratedDraftCommand> commands) {
+        List<GeneratedTestCaseDraft> drafts = new ArrayList<>();
+        for (AiGeneratedDraftCommand command : commands) {
+            ApiEndpoint apiEndpoint = apiEndpointService.getApiEndpoint(command.apiId());
+            ApiInventory apiInventory = apiInventoryRepository.findById(command.apiId()).orElse(null);
+            validateInventoryEnvironment(apiInventory, generation.getEnvironment());
+            if (apiInventory != null) {
+                apiEndpoint = endpointForInventory(apiInventory);
+            }
+            drafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
+                    .generation(generation)
+                    .apiEndpoint(apiEndpoint)
+                    .apiInventory(apiInventory)
+                    .title(command.title())
+                    .description(command.description())
+                    .type(command.type())
+                    .userRole(command.userRole())
+                    .stateCondition(command.stateCondition())
+                    .dataVariant(command.dataVariant())
+                    .requestSpec(command.requestSpec())
+                    .expectedSpec(command.expectedSpec())
+                    .assertionSpec(command.assertionSpec())
+                    .duplicate(command.duplicate())
+                    .selectedForSave(false)
+                    .createdAt(LocalDateTime.now())
+                    .build()));
+        }
+        return drafts;
     }
 
     @Transactional(readOnly = true)

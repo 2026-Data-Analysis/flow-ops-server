@@ -9,11 +9,14 @@ import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.environment.domain.entity.Environment;
+import flowops.execution.domain.entity.Execution;
+import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.ApiPayload;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.ExistingTestCasePayload;
+import flowops.integration.ai.AiAgentContracts.FailureContextPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
@@ -93,12 +96,46 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 null
         ));
 
-        if (response == null || response.drafts() == null) {
-            return List.of();
-        }
-        return response.drafts().stream()
-                .map(draft -> toCommand(draft, endpointIdToApiId))
-                .toList();
+        return toCommands(response, endpointIdToApiId);
+    }
+
+    @Override
+    public List<AiGeneratedDraftCommand> generateDraftsFromFailure(TestGeneration generation, Execution execution, ExecutionStepLog failedLog) {
+        ApiEndpoint endpoint = resolveEndpoint(failedLog);
+        String endpointId = endpointId(endpoint);
+        Map<String, Long> endpointIdToApiId = Map.of(endpointId, endpoint.getId());
+        ApiInventory inventory = failedLog.getTestCase() == null ? null : failedLog.getTestCase().getApiInventory();
+
+        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(new TestCaseGeneratorRequest(
+                AGENT,
+                UUID.randomUUID().toString(),
+                generation.getRequestedBy(),
+                new ProjectPayload(null, generation.getApp().getId(), generation.getApp().getName()),
+                toEnvironmentPayload(generation.getEnvironment()),
+                new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
+                new TestGenerationContext(
+                        generation.getId(),
+                        "FROM_FAILURE",
+                        resolveTestLevel(generation),
+                        toDouble(generation.getCurrentCoverage()),
+                        null,
+                        generation.getContextSummary()
+                ),
+                List.of(toApiPayload(endpointId, endpoint, inventory)),
+                existingTestCases(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory))),
+                new FailureContextPayload(
+                        execution.getId(),
+                        failedLog.getId(),
+                        failedLog.getResponseCode(),
+                        failedLog.getRequestBody(),
+                        failedLog.getResponseBody(),
+                        failedLog.getErrorMessage(),
+                        expectedBehavior(failedLog),
+                        actualBehavior(failedLog)
+                )
+        ));
+
+        return toCommands(response, endpointIdToApiId);
     }
 
     private ApiSelection resolveSelection(Long apiId) {
@@ -120,8 +157,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
-                parseJson(endpoint.getRequestSchema()),
-                parseJson(endpoint.getResponseSchema()),
+                parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema()),
+                parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema()),
                 inventory == null ? null : inventory.isAuthRequired(),
                 endpoint.isDeprecated(),
                 null
@@ -177,6 +214,58 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 draft.assertionSpec(),
                 draft.duplicate()
         );
+    }
+
+    private List<AiGeneratedDraftCommand> toCommands(TestCaseGeneratorResponse response, Map<String, Long> endpointIdToApiId) {
+        if (response == null || response.drafts() == null) {
+            return List.of();
+        }
+        return response.drafts().stream()
+                .map(draft -> toCommand(draft, endpointIdToApiId))
+                .toList();
+    }
+
+    private ApiEndpoint resolveEndpoint(ExecutionStepLog failedLog) {
+        if (failedLog.getTestCase() != null) {
+            return failedLog.getTestCase().getApiEndpoint();
+        }
+        if (failedLog.getScenarioStep() != null) {
+            return failedLog.getScenarioStep().getApiEndpoint();
+        }
+        return apiEndpointService.findFirstByMethodAndPath(ApiMethod.valueOf(failedLog.getMethod()), failedLog.getPath());
+    }
+
+    private String expectedBehavior(ExecutionStepLog failedLog) {
+        if (failedLog.getTestCase() != null && failedLog.getTestCase().getExpectedSpec() != null) {
+            return failedLog.getTestCase().getExpectedSpec();
+        }
+        if (failedLog.getScenarioStep() != null && failedLog.getScenarioStep().getValidationRules() != null) {
+            return failedLog.getScenarioStep().getValidationRules();
+        }
+        return "{\"status\":200}";
+    }
+
+    private String actualBehavior(ExecutionStepLog failedLog) {
+        return """
+                {
+                  "statusCode": %s,
+                  "responseBody": %s
+                }
+                """.formatted(
+                failedLog.getResponseCode() == null ? "null" : failedLog.getResponseCode(),
+                toJsonString(failedLog.getResponseBody())
+        ).trim();
+    }
+
+    private String toJsonString(String value) {
+        if (value == null) {
+            return "null";
+        }
+        return "\"" + value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n") + "\"";
     }
 
     private EnvironmentPayload toEnvironmentPayload(Environment environment) {

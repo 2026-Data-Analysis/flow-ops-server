@@ -2,9 +2,15 @@ package flowops.coverage.service;
 
 import flowops.coverage.dto.response.ApiCoverageSummaryResponse;
 import flowops.coverage.dto.response.ExecutionCoverageImpactResponse;
+import flowops.execution.domain.entity.ExecutionStepLog;
+import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.execution.service.ExecutionQueryService;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.domain.entity.TestCaseType;
 import flowops.testcase.repository.TestCaseRepository;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Objects;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,10 +22,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class CoverageService {
 
     private final TestCaseRepository testCaseRepository;
+    private final ExecutionStepLogRepository executionStepLogRepository;
     private final ObjectProvider<ExecutionQueryService> executionQueryServiceProvider;
 
-    public CoverageService(TestCaseRepository testCaseRepository, ObjectProvider<ExecutionQueryService> executionQueryServiceProvider) {
+    public CoverageService(
+            TestCaseRepository testCaseRepository,
+            ExecutionStepLogRepository executionStepLogRepository,
+            ObjectProvider<ExecutionQueryService> executionQueryServiceProvider
+    ) {
         this.testCaseRepository = testCaseRepository;
+        this.executionStepLogRepository = executionStepLogRepository;
         this.executionQueryServiceProvider = executionQueryServiceProvider;
     }
 
@@ -36,18 +48,41 @@ public class CoverageService {
 
     @Transactional(readOnly = true)
     public ExecutionCoverageImpactResponse getExecutionCoverageImpact(Long executionId) {
-        double beforeCoverage = 35.0;
-        double afterCoverage = beforeCoverage;
         ExecutionQueryService executionQueryService = executionQueryServiceProvider.getIfAvailable();
-        if (executionQueryService != null) {
-            var execution = executionQueryService.findExecution(executionId);
-            afterCoverage = Math.min(100.0, beforeCoverage + (execution.getPassedCount() * 2.5));
+        if (executionQueryService == null) {
+            return new ExecutionCoverageImpactResponse(executionId, 0.0, 0.0, 0.0);
         }
+        executionQueryService.findExecution(executionId);
+        List<Long> apiIds = executionStepLogRepository.findByExecutionIdOrderByCreatedAtAsc(executionId)
+                .stream()
+                .map(this::apiId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        double afterCoverage = apiIds.isEmpty()
+                ? 0.0
+                : apiIds.stream().mapToDouble(this::calculateCoveragePercent).average().orElse(0.0);
+        double beforeCoverage = afterCoverage;
         return new ExecutionCoverageImpactResponse(executionId, beforeCoverage, afterCoverage, afterCoverage - beforeCoverage);
     }
 
     @Transactional(readOnly = true)
     public double calculateCoveragePercent(Long apiId) {
-        return Math.min(100.0, testCaseRepository.countByApiEndpointIdAndActiveTrue(apiId) * 20.0);
+        List<TestCaseType> coveredTypes = testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(apiId)
+                .stream()
+                .map(TestCase::getType)
+                .distinct()
+                .toList();
+        return Math.min(100.0, coveredTypes.size() * (100.0 / TestCaseType.values().length));
+    }
+
+    private Long apiId(ExecutionStepLog log) {
+        if (log.getTestCase() != null) {
+            return log.getTestCase().getApiEndpoint().getId();
+        }
+        if (log.getScenarioStep() != null) {
+            return log.getScenarioStep().getApiEndpoint().getId();
+        }
+        return null;
     }
 }

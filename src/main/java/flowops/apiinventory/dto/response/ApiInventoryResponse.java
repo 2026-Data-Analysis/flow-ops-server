@@ -37,6 +37,10 @@ public record ApiInventoryResponse(
         String specVersion,
         @Schema(description = "인증 필요 여부", example = "true")
         boolean authRequired,
+        @Schema(description = "요청 파라미터, 헤더, body 기본 스키마")
+        String requestSchema,
+        @Schema(description = "응답 스키마")
+        String responseSchema,
         @Schema(description = "연결된 테스트 위계 목록")
         List<TestLevel> testLevels,
         @Schema(description = "연결된 테스트 수", example = "8")
@@ -66,6 +70,8 @@ public record ApiInventoryResponse(
                 ApiInventoryEditStatus.from(apiInventory),
                 apiInventory.getSpecVersion(),
                 apiInventory.isAuthRequired(),
+                apiInventory.getRequestSchema(),
+                apiInventory.getResponseSchema(),
                 testLevels,
                 totalTestCount,
                 coveragePercentage

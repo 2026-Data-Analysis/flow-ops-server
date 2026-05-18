@@ -22,13 +22,13 @@ public class CoverageController {
     private final CoverageService coverageService;
 
     @GetMapping("/apis/{apiId}/coverage")
-    @Operation(summary = "API 커버리지 조회", description = "API별 테스트 케이스 수와 placeholder 커버리지 비율을 조회합니다.")
+    @Operation(summary = "API 커버리지 조회", description = "API별 활성 테스트 케이스 유형 기준 커버리지 비율을 조회합니다.")
     public ApiResponse<ApiCoverageSummaryResponse> getApiCoverage(@PathVariable Long apiId) {
         return ApiResponse.success(coverageService.getApiCoverage(apiId));
     }
 
     @GetMapping("/executions/{executionId}/coverage-impact")
-    @Operation(summary = "실행 커버리지 영향 조회", description = "실행 전후 커버리지 변화량을 placeholder 계산으로 조회합니다.")
+    @Operation(summary = "실행 커버리지 영향 조회", description = "실행 로그에 포함된 API들의 현재 커버리지 값을 기반으로 실행 영향을 조회합니다.")
     public ApiResponse<ExecutionCoverageImpactResponse> getExecutionCoverageImpact(@PathVariable Long executionId) {
         return ApiResponse.success(coverageService.getExecutionCoverageImpact(executionId));
     }

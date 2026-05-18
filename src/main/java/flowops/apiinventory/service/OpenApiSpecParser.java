@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,7 +54,9 @@ public class OpenApiSpecParser {
                                 textOrNull(operation, "operationId"),
                                 textOrNull(operation, "summary"),
                                 specVersion,
-                                authRequired(operation, globalAuthRequired)
+                                authRequired(operation, globalAuthRequired),
+                                requestSchema(pathItem, operation),
+                                responseSchema(operation)
                         ));
                     }
                 }
@@ -96,6 +99,144 @@ public class OpenApiSpecParser {
 
     private boolean hasAuthRequirement(JsonNode securityNode) {
         return securityNode.isArray() && securityNode.size() > 0;
+    }
+
+    private String requestSchema(JsonNode pathItem, JsonNode operation) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        Map<String, Object> pathParams = new LinkedHashMap<>();
+        Map<String, Object> queryParams = new LinkedHashMap<>();
+        Map<String, Object> headers = new LinkedHashMap<>();
+        collectParameters(pathItem.path("parameters"), pathParams, queryParams, headers);
+        collectParameters(operation.path("parameters"), pathParams, queryParams, headers);
+        if (!pathParams.isEmpty()) {
+            request.put("pathParams", pathParams);
+        }
+        if (!queryParams.isEmpty()) {
+            request.put("queryParams", queryParams);
+        }
+        if (!headers.isEmpty()) {
+            request.put("headers", headers);
+        }
+        JsonNode bodySchema = firstJsonRequestBodySchema(operation.path("requestBody"));
+        if (bodySchema != null) {
+            request.put("body", sampleValue(bodySchema));
+        }
+        return writeJson(request);
+    }
+
+    private String responseSchema(JsonNode operation) {
+        JsonNode responses = operation.path("responses");
+        JsonNode successResponse = firstPresent(responses, "200", "201", "202", "204", "default");
+        JsonNode schema = firstJsonContentSchema(successResponse);
+        return schema == null ? null : writeJson(schema);
+    }
+
+    private void collectParameters(
+            JsonNode parameters,
+            Map<String, Object> pathParams,
+            Map<String, Object> queryParams,
+            Map<String, Object> headers
+    ) {
+        if (!parameters.isArray()) {
+            return;
+        }
+        for (JsonNode parameter : parameters) {
+            String name = textOrNull(parameter, "name");
+            String in = textOrNull(parameter, "in");
+            if (name == null || in == null) {
+                continue;
+            }
+            Object value = sampleValue(parameter.path("schema"));
+            switch (in) {
+                case "path" -> pathParams.put(name, value);
+                case "query" -> queryParams.put(name, value);
+                case "header" -> headers.put(name, value);
+                default -> {
+                }
+            }
+        }
+    }
+
+    private JsonNode firstJsonRequestBodySchema(JsonNode requestBody) {
+        return firstJsonContentSchema(requestBody);
+    }
+
+    private JsonNode firstJsonContentSchema(JsonNode node) {
+        JsonNode content = node.path("content");
+        JsonNode mediaType = firstPresent(content, "application/json", "*/*");
+        if (mediaType == null && content.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = content.fields();
+            if (fields.hasNext()) {
+                mediaType = fields.next().getValue();
+            }
+        }
+        JsonNode schema = mediaType == null ? null : mediaType.path("schema");
+        return schema == null || schema.isMissingNode() || schema.isNull() ? null : schema;
+    }
+
+    private Object sampleValue(JsonNode schema) {
+        if (schema == null || schema.isMissingNode() || schema.isNull()) {
+            return "sample";
+        }
+        JsonNode example = schema.path("example");
+        if (!example.isMissingNode() && !example.isNull()) {
+            return jsonMapper.convertValue(example, Object.class);
+        }
+        JsonNode enumValues = schema.path("enum");
+        if (enumValues.isArray() && enumValues.size() > 0) {
+            return jsonMapper.convertValue(enumValues.get(0), Object.class);
+        }
+        String type = textOrNull(schema, "type");
+        if ("integer".equals(type)) {
+            return 1;
+        }
+        if ("number".equals(type)) {
+            return 1.0;
+        }
+        if ("boolean".equals(type)) {
+            return true;
+        }
+        if ("array".equals(type)) {
+            return List.of(sampleValue(schema.path("items")));
+        }
+        if ("object".equals(type) || schema.path("properties").isObject()) {
+            Map<String, Object> object = new LinkedHashMap<>();
+            Iterator<Map.Entry<String, JsonNode>> fields = schema.path("properties").fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                object.put(field.getKey(), sampleValue(field.getValue()));
+            }
+            return object;
+        }
+        String format = textOrNull(schema, "format");
+        if ("date-time".equals(format)) {
+            return "2026-01-01T00:00:00";
+        }
+        if ("date".equals(format)) {
+            return "2026-01-01";
+        }
+        return "sample";
+    }
+
+    private JsonNode firstPresent(JsonNode node, String... fieldNames) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.get(fieldName);
+            if (value != null && !value.isMissingNode() && !value.isNull()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return jsonMapper.writeValueAsString(value);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String textOrNull(JsonNode node, String fieldName) {

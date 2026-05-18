@@ -50,9 +50,9 @@ public record ExecutionDetailResponse(
         String endpoint,
         @Schema(description = "환경 기본 헤더 JSON", example = "{\"Authorization\":\"Bearer ***\"}")
         String headers,
-        @Schema(description = "요청 Body", example = "{\"request\":\"mock\"}")
+        @Schema(description = "요청 Body", example = "{\"email\":\"test@example.com\"}")
         String body,
-        @Schema(description = "응답 Body", example = "{\"result\":\"mock success\"}")
+        @Schema(description = "응답 Body", example = "{\"result\":\"success\"}")
         String response,
         @Schema(description = "응답 상태 코드", example = "200")
         Integer statusCode,
@@ -60,7 +60,7 @@ public record ExecutionDetailResponse(
         Long responseTimeMs,
         @Schema(description = "검증 설정", example = "{\"assertions\":[\"status == 200\"]}")
         String validationConfig,
-        @Schema(description = "오류 메시지", example = "Mock execution failure for placeholder engine.")
+        @Schema(description = "오류 메시지", example = "Expected HTTP status 200, but received 500.")
         String errorMessage,
         @Schema(description = "기대 동작", example = "응답 상태는 200이어야 합니다.")
         String expectedBehavior,

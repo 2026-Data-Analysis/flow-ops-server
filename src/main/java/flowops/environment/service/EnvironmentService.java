@@ -32,6 +32,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 @RequiredArgsConstructor
 public class EnvironmentService {
 
+    private static final String DEFAULT_BASE_URL = "http://localhost:8080";
+
     private static final List<String> CONNECTION_PROBE_PATHS = List.of(
             "/hello",
             "/up",
@@ -164,6 +166,9 @@ public class EnvironmentService {
 
     private String normalizeBaseUrl(String baseUrl) {
         String trimmed = baseUrl == null ? "" : baseUrl.trim();
+        if (trimmed.isBlank()) {
+            return DEFAULT_BASE_URL;
+        }
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             return trimmed;
         }

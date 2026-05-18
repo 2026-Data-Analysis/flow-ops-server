@@ -65,6 +65,8 @@ public class ApiInventoryService {
                 .status(ApiInventoryStatus.ACTIVE)
                 .specVersion(request.specVersion())
                 .authRequired(request.authRequired())
+                .requestSchema(request.requestSchema())
+                .responseSchema(request.responseSchema())
                 .build());
 
         return toListItem(apiInventory);

@@ -25,6 +25,10 @@ public record SaveApiInventoryRequest(
         @Schema(description = "스펙 버전", example = "3.0.1")
         @Size(max = 50) String specVersion,
         @Schema(description = "인증 필요 여부", example = "true")
-        boolean authRequired
+        boolean authRequired,
+        @Schema(description = "요청 파라미터, 헤더, body 기본 스키마", example = "{\"queryParams\":{\"page\":1},\"headers\":{\"X-Request-Id\":\"sample\"}}")
+        String requestSchema,
+        @Schema(description = "응답 스키마", example = "{\"type\":\"object\"}")
+        String responseSchema
 ) {
 }

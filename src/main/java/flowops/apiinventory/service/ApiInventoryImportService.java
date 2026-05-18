@@ -113,6 +113,8 @@ public class ApiInventoryImportService {
                         .status(ApiInventoryStatus.ACTIVE)
                         .specVersion(operation.specVersion())
                         .authRequired(operation.authRequired())
+                        .requestSchema(operation.requestSchema())
+                        .responseSchema(operation.responseSchema())
                         .build())
                 .forEach(apiInventoryRepository::save);
         return operations.size();
@@ -178,7 +180,9 @@ public class ApiInventoryImportService {
                             methodMatcher.group(1),
                             null,
                             "Spring MVC",
-                            false
+                            false,
+                            "{}",
+                            null
                     ));
                 }
             }

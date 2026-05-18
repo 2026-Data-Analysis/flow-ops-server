@@ -28,7 +28,7 @@ public class RunTestController {
     private final RunTestService runTestService;
 
     @PostMapping("/executions")
-    @Operation(summary = "실행 생성", description = "API, 테스트 케이스, 시나리오 실행을 요청하고 mock 실행 결과를 저장합니다.")
+    @Operation(summary = "실행 생성", description = "API, 테스트 케이스, 시나리오 실행을 요청하고 실제 HTTP 실행 결과를 저장합니다.")
     public ApiResponse<ExecutionDetailResponse> createExecution(@Valid @RequestBody CreateExecutionRequest request) {
         return ApiResponse.success(runTestService.createExecution(request));
     }

@@ -1,7 +1,11 @@
 package flowops.scenario.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
+import flowops.api.repository.ApiEndpointRepository;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
@@ -11,9 +15,18 @@ import flowops.environment.domain.entity.Environment;
 import flowops.environment.service.EnvironmentService;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
+import flowops.global.config.ExternalServiceProperties;
+import flowops.integration.ai.AiAgentContracts.ApiPayload;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.MetadataPayload;
+import flowops.integration.ai.AiAgentContracts.ProjectPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioContextPayload;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.dto.request.CreateScenarioRequest;
+import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
 import flowops.scenario.dto.request.ScenarioStepRequest;
 import flowops.scenario.dto.request.UpdateScenarioRequest;
@@ -23,8 +36,10 @@ import flowops.scenario.dto.response.ScenarioStepResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,8 +55,12 @@ public class ScenarioService {
     private final ScenarioStepRepository scenarioStepRepository;
     private final AppService appService;
     private final ApiEndpointService apiEndpointService;
+    private final ApiEndpointRepository apiEndpointRepository;
     private final ApiInventoryRepository apiInventoryRepository;
     private final EnvironmentService environmentService;
+    private final AiClient aiClient;
+    private final ExternalServiceProperties externalServiceProperties;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
@@ -127,12 +146,96 @@ public class ScenarioService {
     }
 
     @Transactional(readOnly = true)
-    public List<ScenarioRecommendationResponse> recommend() {
+    public List<ScenarioRecommendationResponse> recommend(RecommendScenarioRequest request) {
+        if (externalServiceProperties.ai().mockEnabled() || request == null || request.appId() == null) {
+            return mockRecommendations();
+        }
+        App app = appService.getApp(request.appId());
+        Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
+        List<ApiEndpoint> endpoints = request.apiIds() == null || request.apiIds().isEmpty()
+                ? apiEndpointRepository.findByAppId(app.getId())
+                : request.apiIds().stream().map(apiEndpointService::getApiEndpoint).toList();
+        ScenarioBuilderResponse response = aiClient.buildScenario(new ScenarioBuilderRequest(
+                "SCENARIO_BUILDER",
+                UUID.randomUUID().toString(),
+                request.requestedBy() == null || request.requestedBy().isBlank() ? "flowops-system" : request.requestedBy(),
+                new ProjectPayload(null, app.getId(), app.getName()),
+                toEnvironmentPayload(environment),
+                new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
+                new ScenarioContextPayload(
+                        app.getId(),
+                        request.goal() == null || request.goal().isBlank() ? "추천 시나리오 생성" : request.goal(),
+                        "RECOMMEND",
+                        request.testLevel() == null ? null : request.testLevel().name(),
+                        request.businessDomain()
+                ),
+                endpoints.stream().map(this::toApiPayload).toList(),
+                List.of()
+        ));
+        if (response == null || response.name() == null) {
+            return List.of();
+        }
+        return List.of(new ScenarioRecommendationResponse(
+                response.name(),
+                parseScenarioType(response.type(), request.scenarioType()),
+                response.meta() == null ? response.description() : response.meta().rationale()
+        ));
+    }
+
+    private List<ScenarioRecommendationResponse> mockRecommendations() {
         return List.of(
                 new ScenarioRecommendationResponse("Critical checkout flow", flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path."),
                 new ScenarioRecommendationResponse("Validation guard rails", flowops.scenario.domain.entity.ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures."),
                 new ScenarioRecommendationResponse("Recovery after dependency failure", flowops.scenario.domain.entity.ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.")
         );
+    }
+
+    private EnvironmentPayload toEnvironmentPayload(Environment environment) {
+        if (environment == null) {
+            return null;
+        }
+        return new EnvironmentPayload(
+                environment.getId(),
+                environment.getName(),
+                environment.getBaseUrl(),
+                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
+        );
+    }
+
+    private ApiPayload toApiPayload(ApiEndpoint endpoint) {
+        return new ApiPayload(
+                endpoint.getMethod().name() + ":" + endpoint.getPath(),
+                endpoint.getMethod().name(),
+                endpoint.getPath(),
+                endpoint.getDomainTag(),
+                parseJson(endpoint.getRequestSchema()),
+                parseJson(endpoint.getResponseSchema()),
+                null,
+                endpoint.isDeprecated(),
+                null
+        );
+    }
+
+    private JsonNode parseJson(String value) {
+        if (value == null || value.isBlank()) {
+            return objectMapper.nullNode();
+        }
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception ignored) {
+            return objectMapper.getNodeFactory().textNode(value);
+        }
+    }
+
+    private flowops.scenario.domain.entity.ScenarioType parseScenarioType(String value, flowops.scenario.domain.entity.ScenarioType fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback == null ? flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH : fallback;
+        }
+        try {
+            return flowops.scenario.domain.entity.ScenarioType.valueOf(value);
+        } catch (IllegalArgumentException ignored) {
+            return fallback == null ? flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH : fallback;
+        }
     }
 
     @Transactional(readOnly = true)

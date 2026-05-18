@@ -13,7 +13,7 @@ public record GenerateFailureTestCasesResponse(
         Long failedLogId,
         @Schema(description = "API ID", example = "10")
         Long apiId,
-        @Schema(description = "오류 메시지", example = "Mock execution failure for placeholder engine.")
+        @Schema(description = "오류 메시지", example = "Expected HTTP status 200, but received 500.")
         String errorMessage,
         @Schema(description = "기대 동작", example = "응답 상태는 200이어야 합니다.")
         String expectedBehavior,

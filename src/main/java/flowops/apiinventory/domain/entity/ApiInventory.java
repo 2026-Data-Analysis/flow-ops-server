@@ -81,6 +81,14 @@ public class ApiInventory extends BaseEntity {
     @Comment("인증 필요 여부")
     private boolean authRequired;
 
+    @Column(name = "request_schema", columnDefinition = "TEXT")
+    @Comment("API 요청 파라미터, 헤더, body 기본 스키마")
+    private String requestSchema;
+
+    @Column(name = "response_schema", columnDefinition = "TEXT")
+    @Comment("API 응답 스키마")
+    private String responseSchema;
+
     @Builder
     private ApiInventory(
             Project project,
@@ -93,7 +101,9 @@ public class ApiInventory extends BaseEntity {
             ApiInventorySource sourceType,
             ApiInventoryStatus status,
             String specVersion,
-            boolean authRequired
+            boolean authRequired,
+            String requestSchema,
+            String responseSchema
     ) {
         this.project = project;
         this.repositoryInfo = repositoryInfo;
@@ -106,5 +116,7 @@ public class ApiInventory extends BaseEntity {
         this.status = status;
         this.specVersion = specVersion;
         this.authRequired = authRequired;
+        this.requestSchema = requestSchema;
+        this.responseSchema = responseSchema;
     }
 }

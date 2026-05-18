@@ -1,5 +1,7 @@
 package flowops.integration.ai;
 
+import flowops.execution.domain.entity.Execution;
+import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.testgeneration.domain.entity.TestGeneration;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,5 +44,42 @@ public class MockAiTestGenerationGateway implements AiTestGenerationGateway {
             ));
         }
         return drafts;
+    }
+
+    @Override
+    public List<AiGeneratedDraftCommand> generateDraftsFromFailure(TestGeneration generation, Execution execution, ExecutionStepLog failedLog) {
+        Long apiId = failedLog.getTestCase() != null
+                ? failedLog.getTestCase().getApiEndpoint().getId()
+                : failedLog.getScenarioStep() != null
+                ? failedLog.getScenarioStep().getApiEndpoint().getId()
+                : execution.getTargetId();
+        return List.of(
+                new AiGeneratedDraftCommand(
+                        apiId,
+                        "Failure reproduction for API " + apiId,
+                        "Mocked failure-based draft using the failed execution log.",
+                        "FAILURE_HANDLING",
+                        "QA_ENGINEER",
+                        "Same environment and data as the failed execution",
+                        "failure-reproduction",
+                        failedLog.getRequestBody(),
+                        "{\"status\":200}",
+                        "{\"assertions\":[\"status == 200\",\"previous failure should not recur\"]}",
+                        false
+                ),
+                new AiGeneratedDraftCommand(
+                        apiId,
+                        "Regression guard for API " + apiId,
+                        "Mocked regression draft to prevent the same failure.",
+                        "VALIDATION",
+                        "QA_ENGINEER",
+                        "After the failure is fixed",
+                        "post-fix-regression",
+                        failedLog.getRequestBody(),
+                        "{\"status\":200}",
+                        "{\"assertions\":[\"status == 200\"]}",
+                        false
+                )
+        );
     }
 }

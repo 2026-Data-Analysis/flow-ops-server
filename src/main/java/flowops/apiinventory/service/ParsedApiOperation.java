@@ -8,6 +8,8 @@ public record ParsedApiOperation(
         String operationId,
         String summary,
         String specVersion,
-        boolean authRequired
+        boolean authRequired,
+        String requestSchema,
+        String responseSchema
 ) {
 }

@@ -57,7 +57,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/environments/{environmentId}/test-connection")
-    @Operation(summary = "환경 연결 테스트", description = "실제 외부 호출 없이 연결 테스트용 placeholder 응답을 반환합니다.")
+    @Operation(summary = "환경 연결 테스트", description = "환경 baseUrl에 대해 대표 상태 확인 경로를 실제 호출해 연결 상태를 확인합니다.")
     public ApiResponse<ConnectionTestResponse> testConnection(@PathVariable Long environmentId) {
         return ApiResponse.success(environmentService.testConnection(environmentId));
     }
