@@ -100,7 +100,15 @@ public class OpenApiSpecParser {
     }
 
     private boolean hasAuthRequirement(JsonNode securityNode) {
-        return securityNode.isArray() && securityNode.size() > 0;
+        if (!securityNode.isArray()) {
+            return false;
+        }
+        for (JsonNode requirement : securityNode) {
+            if (requirement.isObject() && requirement.size() > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String domainTag(String path, JsonNode operation) {

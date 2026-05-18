@@ -28,4 +28,45 @@ class OpenApiSpecParserTest {
         assertThat(spec.operations()).hasSize(1);
         assertThat(spec.operations().get(0).domainTag()).isEqualTo("USERS");
     }
+
+    @Test
+    void marksOperationAsAuthRequiredWhenGlobalSecurityRequirementExists() {
+        ParsedOpenApiSpec spec = parser.parse("openapi.json", """
+                {
+                  "openapi": "3.0.1",
+                  "security": [{ "bearerAuth": [] }],
+                  "paths": {
+                    "/members/me": {
+                      "get": {
+                        "responses": { "200": { "description": "OK" } }
+                      }
+                    }
+                  }
+                }
+                """);
+
+        assertThat(spec.operations()).hasSize(1);
+        assertThat(spec.operations().get(0).authRequired()).isTrue();
+    }
+
+    @Test
+    void treatsEmptyOperationSecurityRequirementAsPublicOverride() {
+        ParsedOpenApiSpec spec = parser.parse("openapi.json", """
+                {
+                  "openapi": "3.0.1",
+                  "security": [{ "bearerAuth": [] }],
+                  "paths": {
+                    "/auth/login": {
+                      "post": {
+                        "security": [{}],
+                        "responses": { "200": { "description": "OK" } }
+                      }
+                    }
+                  }
+                }
+                """);
+
+        assertThat(spec.operations()).hasSize(1);
+        assertThat(spec.operations().get(0).authRequired()).isFalse();
+    }
 }

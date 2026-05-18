@@ -52,6 +52,16 @@ public class ApiInventoryImportService {
     );
     private static final Pattern STRING_LITERAL = Pattern.compile("\"([^\"]*)\"|'([^']*)'");
     private static final Pattern REQUEST_METHOD = Pattern.compile("RequestMethod\\.([A-Z]+)");
+    private static final Pattern CLASS_AUTH_REQUIRED = Pattern.compile(
+            "@(?:PreAuthorize|PostAuthorize|Secured|RolesAllowed|SecurityRequirement|AuthenticationPrincipal)\\b"
+    );
+    private static final Pattern METHOD_AUTH_REQUIRED = Pattern.compile(
+            "@(?:PreAuthorize|PostAuthorize|Secured|RolesAllowed|SecurityRequirement|AuthenticationPrincipal)\\b"
+                    + "|\\b(?:Authentication|Jwt|JwtAuthenticationToken|OAuth2AuthenticationToken|Principal|SecurityContext)\\b"
+                    + "|@RequestHeader\\s*\\([^)]*(?:Authorization|HttpHeaders\\.AUTHORIZATION)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern PERMIT_ALL = Pattern.compile("@PermitAll\\b");
 
     private final GithubClient githubClient;
     private final OpenApiSpecParser openApiSpecParser;
@@ -161,11 +171,16 @@ public class ApiInventoryImportService {
                         }));
     }
 
-    private List<ParsedApiOperation> parseSpringControllerOperations(String content) {
+    List<ParsedApiOperation> parseSpringControllerOperations(String content) {
         String basePath = controllerBasePath(content);
+        int classStart = classStart(content);
+        boolean classAuthRequired = classAuthRequired(content);
         List<ParsedApiOperation> operations = new ArrayList<>();
         Matcher mappingMatcher = REQUEST_MAPPING.matcher(content);
         while (mappingMatcher.find()) {
+            if (mappingMatcher.start() < classStart) {
+                continue;
+            }
             int afterAnnotation = mappingMatcher.end();
             Matcher methodMatcher = METHOD_DECLARATION.matcher(content);
             methodMatcher.region(afterAnnotation, Math.min(content.length(), afterAnnotation + 600));
@@ -175,6 +190,7 @@ public class ApiInventoryImportService {
 
             List<ApiHttpMethod> methods = mappingMethods(mappingMatcher.group(1), mappingMatcher.group(2));
             List<String> paths = mappingPaths(mappingMatcher.group(2));
+            boolean authRequired = authRequired(content, annotationBlockStart(content, mappingMatcher.start()), methodMatcher.end(), classAuthRequired);
             for (ApiHttpMethod method : methods) {
                 for (String path : paths) {
                     operations.add(new ParsedApiOperation(
@@ -184,7 +200,7 @@ public class ApiInventoryImportService {
                             inferDomainTag(joinPaths(basePath, path)),
                             null,
                             "Spring MVC",
-                            false,
+                            authRequired,
                             "{}",
                             null
                     ));
@@ -192,6 +208,57 @@ public class ApiInventoryImportService {
             }
         }
         return operations;
+    }
+
+    private int classStart(String content) {
+        Matcher classMatcher = CLASS_DECLARATION.matcher(content);
+        return classMatcher.find() ? classMatcher.start() : 0;
+    }
+
+    private boolean classAuthRequired(String content) {
+        Matcher classMatcher = CLASS_DECLARATION.matcher(content);
+        if (!classMatcher.find()) {
+            return false;
+        }
+        String classPrefix = content.substring(0, classMatcher.start());
+        return !PERMIT_ALL.matcher(classPrefix).find() && CLASS_AUTH_REQUIRED.matcher(classPrefix).find();
+    }
+
+    private boolean authRequired(String content, int mappingStart, int methodDeclarationEnd, boolean classAuthRequired) {
+        String methodHeader = methodHeader(content, mappingStart, methodDeclarationEnd);
+        if (PERMIT_ALL.matcher(methodHeader).find()) {
+            return false;
+        }
+        return classAuthRequired || METHOD_AUTH_REQUIRED.matcher(methodHeader).find();
+    }
+
+    private String methodHeader(String content, int mappingStart, int methodDeclarationEnd) {
+        int headerEnd = content.indexOf('{', methodDeclarationEnd);
+        if (headerEnd < 0 || headerEnd - mappingStart > 1200) {
+            headerEnd = Math.min(content.length(), methodDeclarationEnd + 600);
+        }
+        return content.substring(mappingStart, headerEnd);
+    }
+
+    private int annotationBlockStart(String content, int annotationStart) {
+        int blockStart = lineStart(content, annotationStart);
+        int cursor = blockStart;
+        while (cursor > 0) {
+            int previousLineEnd = cursor - 1;
+            int previousLineStart = lineStart(content, previousLineEnd);
+            String previousLine = content.substring(previousLineStart, previousLineEnd).trim();
+            if (!previousLine.isEmpty() && !previousLine.startsWith("@")) {
+                break;
+            }
+            blockStart = previousLineStart;
+            cursor = previousLineStart;
+        }
+        return blockStart;
+    }
+
+    private int lineStart(String content, int index) {
+        int newline = content.lastIndexOf('\n', Math.max(0, index - 1));
+        return newline < 0 ? 0 : newline + 1;
     }
 
     private String controllerBasePath(String content) {
