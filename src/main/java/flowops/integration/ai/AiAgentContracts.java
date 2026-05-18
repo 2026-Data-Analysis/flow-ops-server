@@ -158,47 +158,124 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "시나리오 빌더 AI 에이전트 요청")
-    public record ScenarioBuilderRequest(
-            String agent,
-            String requestId,
-            String requestedBy,
-            ProjectPayload project,
-            EnvironmentPayload environment,
-            MetadataPayload metadata,
-            ScenarioContextPayload scenarioContext,
-            List<ApiPayload> apis,
-            List<ExistingScenarioPayload> existingScenarios
+    public record ScenarioGenerateRequest(
+            @JsonProperty("project_id")
+            String project_id,
+            String mode,
+            @JsonProperty("user_intent")
+            String user_intent,
+            @JsonProperty("api_inventory")
+            ScenarioApiInventoryPayload api_inventory,
+            @JsonProperty("existing_test_cases")
+            List<ScenarioExistingTestCasePayload> existing_test_cases,
+            @JsonProperty("max_scenarios")
+            Integer max_scenarios,
+            @JsonProperty("max_steps_per_scenario")
+            Integer max_steps_per_scenario
+    ) {
+    }
+
+    public record ScenarioApiInventoryPayload(
+            @JsonProperty("project_id")
+            String project_id,
+            List<ScenarioEndpointPayload> endpoints
+    ) {
+    }
+
+    public record ScenarioEndpointPayload(
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
+            String path,
+            String method,
+            String summary,
+            String description,
+            List<JsonNode> parameters,
+            @JsonProperty("request_body_schema")
+            JsonNode request_body_schema,
+            @JsonProperty("response_schema")
+            JsonNode response_schema,
+            ScenarioAuthPayload auth,
+            List<String> tags
+    ) {
+    }
+
+    public record ScenarioAuthPayload(
+            String type,
+            String location
+    ) {
+    }
+
+    public record ScenarioExistingTestCasePayload(
+            @JsonProperty("test_case_id")
+            String test_case_id,
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
+            String name,
+            String type,
+            String description
     ) {
     }
 
     @Schema(description = "시나리오 빌더 AI 에이전트 응답")
-    public record ScenarioBuilderResponse(
+    public record ScenarioGenerateResponse(
+            boolean success,
+            ScenarioGenerateDataPayload data,
+            @JsonProperty("error_code")
+            String error_code,
+            @JsonProperty("error_message")
+            String error_message,
+            @JsonProperty("trace_id")
+            String trace_id
+    ) {
+    }
+
+    public record ScenarioGenerateDataPayload(
+            List<ScenarioPayload> scenarios,
+            @JsonProperty("used_endpoint_ids")
+            List<String> used_endpoint_ids
+    ) {
+    }
+
+    public record ScenarioPayload(
+            @JsonProperty("scenario_id")
+            String scenario_id,
             String name,
             String description,
-            String type,
-            MetaPayload meta,
-            List<ScenarioStepPayload> steps
+            List<ScenarioStepPayload> steps,
+            MetaPayload meta
     ) {
     }
 
     @Schema(description = "AI 추천 메타데이터")
     public record MetaPayload(
-            String rationale
+            String rationale,
+            @JsonProperty("coverage_gap")
+            String coverage_gap,
+            @JsonProperty("estimated_risk")
+            String estimated_risk
     ) {
     }
 
     @Schema(description = "AI가 반환한 시나리오 스텝. order, endpoint_id, name 등은 응답 변환 대상 필드입니다.")
     public record ScenarioStepPayload(
+            @JsonProperty("step_id")
+            String step_id,
+            String ref,
             Integer order,
             @JsonProperty("endpoint_id")
             String endpoint_id,
             String name,
+            String description,
             @JsonProperty("static_payload")
-            String static_payload,
-            @JsonProperty("expected_assertions")
-            String expected_assertions,
+            JsonNode static_payload,
+            @JsonProperty("static_params")
+            JsonNode static_params,
             @JsonProperty("chained_variables")
-            String chained_variables
+            JsonNode chained_variables,
+            @JsonProperty("expected_status_code")
+            Integer expected_status_code,
+            @JsonProperty("expected_assertions")
+            List<String> expected_assertions
     ) {
     }
 

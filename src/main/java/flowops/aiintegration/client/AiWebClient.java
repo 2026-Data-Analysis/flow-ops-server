@@ -15,8 +15,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
@@ -69,8 +69,8 @@ public class AiWebClient implements AiClient {
     }
 
     @Override
-    public ScenarioBuilderResponse buildScenario(ScenarioBuilderRequest request) {
-        return post("/agents/scenarios/build", request, ScenarioBuilderResponse.class);
+    public ScenarioGenerateResponse buildScenario(ScenarioGenerateRequest request) {
+        return post("/v1/agents/scenario/generate", request, ScenarioGenerateResponse.class);
     }
 
     @Override

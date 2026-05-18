@@ -6,8 +6,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
@@ -39,8 +39,8 @@ public class AiAgentController {
 
     @PostMapping("/scenarios/build")
     @Operation(summary = "API 시나리오 생성", description = "사용자 의도와 API 목록을 바탕으로 실행 가능한 시나리오 스텝을 추천합니다.")
-    public ApiResponse<ScenarioBuilderResponse> buildScenario(
-            @Valid @RequestBody ScenarioBuilderRequest request
+    public ApiResponse<ScenarioGenerateResponse> buildScenario(
+            @Valid @RequestBody ScenarioGenerateRequest request
     ) {
         return ApiResponse.success(aiClient.buildScenario(request));
     }

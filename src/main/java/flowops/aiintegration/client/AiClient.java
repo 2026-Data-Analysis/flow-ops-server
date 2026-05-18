@@ -12,8 +12,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
@@ -30,7 +30,7 @@ public interface AiClient {
 
     TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request);
 
-    ScenarioBuilderResponse buildScenario(ScenarioBuilderRequest request);
+    ScenarioGenerateResponse buildScenario(ScenarioGenerateRequest request);
 
     LogAnalysisResponse analyzeLog(LogAnalysisRequest request);
 

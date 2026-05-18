@@ -13,18 +13,19 @@ import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.environment.domain.entity.Environment;
 import flowops.environment.service.EnvironmentService;
+import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
-import flowops.global.config.ExternalServiceProperties;
-import flowops.integration.ai.AiAgentContracts.ApiPayload;
-import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
-import flowops.integration.ai.AiAgentContracts.MetadataPayload;
-import flowops.integration.ai.AiAgentContracts.ProjectPayload;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderRequest;
-import flowops.integration.ai.AiAgentContracts.ScenarioBuilderResponse;
-import flowops.integration.ai.AiAgentContracts.ScenarioContextPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.domain.entity.ScenarioStep;
+import flowops.scenario.domain.entity.ScenarioType;
 import flowops.scenario.dto.request.CreateScenarioRequest;
 import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
@@ -36,18 +37,16 @@ import flowops.scenario.dto.response.ScenarioStepResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
-import java.time.LocalDateTime;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.repository.TestCaseRepository;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 여러 API를 묶은 시나리오의 추천, 생성, 수정, 단계 재정렬을 담당합니다.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -63,13 +62,14 @@ public class ScenarioService {
     private final AiClient aiClient;
     private final ExternalServiceProperties externalServiceProperties;
     private final ObjectMapper objectMapper;
+    private final TestCaseRepository testCaseRepository;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
         App app = appService.getApp(request.appId());
         Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
         if (environment != null && !environment.getApp().getId().equals(app.getId())) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "시나리오 환경이 요청한 앱에 속하지 않습니다.");
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario environment does not belong to the requested app.");
         }
         Scenario scenario = scenarioRepository.save(Scenario.builder()
                 .app(app)
@@ -95,8 +95,7 @@ public class ScenarioService {
                     .filter(scenario -> matchesEnvironment(scenario, repositoryId, branchName))
                     .toList();
         }
-        return scenarios
-                .stream()
+        return scenarios.stream()
                 .map(scenario -> ScenarioSummaryResponse.from(
                         scenario,
                         scenarioStepRepository.countByScenarioId(scenario.getId())
@@ -134,7 +133,7 @@ public class ScenarioService {
             ScenarioStep step = steps.stream()
                     .filter(candidate -> candidate.getId().equals(item.stepId()))
                     .findFirst()
-                    .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "시나리오 단계를 찾을 수 없습니다."));
+                    .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Scenario step not found."));
             step.update(
                     item.stepOrder(),
                     step.getApiEndpoint(),
@@ -159,82 +158,191 @@ public class ScenarioService {
                     request == null ? null : request.appId());
             return mockRecommendations();
         }
+
         App app = appService.getApp(request.appId());
         Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
-        List<ApiEndpoint> endpoints = request.apiIds() == null || request.apiIds().isEmpty()
-                ? apiEndpointRepository.findByAppId(app.getId())
-                : request.apiIds().stream().map(apiEndpointService::getApiEndpoint).toList();
-        log.info("Calling AI scenario builder. appId={}, environmentId={}, apiCount={}, requestedBy={}, mockEnabled={}",
+        List<ApiInventory> inventories = scenarioInventories(app.getId(), request.apiIds());
+        List<ApiEndpoint> endpoints = inventories.isEmpty() ? scenarioEndpoints(app.getId(), request.apiIds()) : List.of();
+        List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
+                ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
+                : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
+        String projectId = projectId(app, inventories);
+
+        log.info("Calling AI scenario generator. appId={}, environmentId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
                 app.getId(),
                 environment == null ? null : environment.getId(),
-                endpoints.size(),
+                projectId,
+                scenarioMode(request),
+                aiEndpoints.size(),
                 request.requestedBy(),
                 externalServiceProperties.ai().mockEnabled());
-        ScenarioBuilderResponse response = aiClient.buildScenario(new ScenarioBuilderRequest(
-                "SCENARIO_BUILDER",
-                UUID.randomUUID().toString(),
-                request.requestedBy() == null || request.requestedBy().isBlank() ? "flowops-system" : request.requestedBy(),
-                new ProjectPayload(null, app.getId(), app.getName()),
-                toEnvironmentPayload(environment),
-                new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
-                new ScenarioContextPayload(
-                        app.getId(),
-                        request.goal() == null || request.goal().isBlank() ? "추천 시나리오 생성" : request.goal(),
-                        "RECOMMEND",
-                        request.testLevel() == null ? null : request.testLevel().name(),
-                        request.businessDomain()
-                ),
-                endpoints.stream().map(this::toApiPayload).toList(),
-                List.of()
+
+        ScenarioGenerateResponse response = aiClient.buildScenario(new ScenarioGenerateRequest(
+                projectId,
+                scenarioMode(request),
+                userIntent(request),
+                new ScenarioApiInventoryPayload(projectId, aiEndpoints),
+                existingTestCases(inventories, endpoints),
+                3,
+                8
         ));
-        if (response == null || response.name() == null) {
-            log.warn("AI scenario builder returned empty response. appId={}, environmentId={}",
+
+        if (response == null || !response.success() || response.data() == null || response.data().scenarios() == null) {
+            log.warn("AI scenario generator returned no scenarios. appId={}, environmentId={}, success={}, errorCode={}, errorMessage={}, traceId={}",
                     app.getId(),
-                    environment == null ? null : environment.getId());
+                    environment == null ? null : environment.getId(),
+                    response == null ? null : response.success(),
+                    response == null ? null : response.error_code(),
+                    response == null ? null : response.error_message(),
+                    response == null ? null : response.trace_id());
             return List.of();
         }
-        log.info("AI scenario builder completed. appId={}, scenarioName={}, scenarioType={}",
+
+        List<ScenarioRecommendationResponse> recommendations = response.data().scenarios().stream()
+                .filter(scenario -> scenario.name() != null && !scenario.name().isBlank())
+                .map(scenario -> toRecommendation(scenario, request.scenarioType()))
+                .toList();
+        log.info("AI scenario generator completed. appId={}, scenarioCount={}, traceId={}",
                 app.getId(),
-                response.name(),
-                response.type());
-        return List.of(new ScenarioRecommendationResponse(
-                response.name(),
-                parseScenarioType(response.type(), request.scenarioType()),
-                response.meta() == null ? response.description() : response.meta().rationale()
-        ));
+                recommendations.size(),
+                response.trace_id());
+        return recommendations;
     }
 
     private List<ScenarioRecommendationResponse> mockRecommendations() {
         return List.of(
-                new ScenarioRecommendationResponse("Critical checkout flow", flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path."),
-                new ScenarioRecommendationResponse("Validation guard rails", flowops.scenario.domain.entity.ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures."),
-                new ScenarioRecommendationResponse("Recovery after dependency failure", flowops.scenario.domain.entity.ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.")
+                new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path."),
+                new ScenarioRecommendationResponse("Validation guard rails", ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures."),
+                new ScenarioRecommendationResponse("Recovery after dependency failure", ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.")
         );
     }
 
-    private EnvironmentPayload toEnvironmentPayload(Environment environment) {
-        if (environment == null) {
-            return null;
+    private List<ApiInventory> scenarioInventories(Long appId, List<Long> apiIds) {
+        if (apiIds == null || apiIds.isEmpty()) {
+            return apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(appId);
         }
-        return new EnvironmentPayload(
-                environment.getId(),
-                environment.getName(),
-                environment.getBaseUrl(),
-                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
+        List<ApiInventory> inventories = apiIds.stream()
+                .map(apiInventoryRepository::findById)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .filter(inventory -> inventory.getRepositoryInfo() != null
+                        && inventory.getRepositoryInfo().getApp() != null
+                        && inventory.getRepositoryInfo().getApp().getId().equals(appId))
+                .toList();
+        return inventories.size() == apiIds.size() ? inventories : List.of();
+    }
+
+    private List<ApiEndpoint> scenarioEndpoints(Long appId, List<Long> apiIds) {
+        if (apiIds == null || apiIds.isEmpty()) {
+            return apiEndpointRepository.findByAppId(appId);
+        }
+        return apiIds.stream()
+                .map(apiEndpointService::getApiEndpoint)
+                .filter(endpoint -> endpoint.getApp().getId().equals(appId))
+                .toList();
+    }
+
+    private String projectId(App app, List<ApiInventory> inventories) {
+        return inventories.stream()
+                .findFirst()
+                .map(ApiInventory::getProject)
+                .map(project -> "project-" + project.getId())
+                .orElse("app-" + app.getId());
+    }
+
+    private String scenarioMode(RecommendScenarioRequest request) {
+        return request.goal() == null || request.goal().isBlank() ? "RECOMMEND" : "NATURAL_LANGUAGE";
+    }
+
+    private String userIntent(RecommendScenarioRequest request) {
+        if (request.goal() != null && !request.goal().isBlank()) {
+            return request.goal();
+        }
+        return "Recommend end-to-end scenarios from backend API inventory.";
+    }
+
+    private ScenarioEndpointPayload toScenarioEndpointPayload(ApiInventory inventory) {
+        return new ScenarioEndpointPayload(
+                endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
+                inventory.getEndpointPath(),
+                inventory.getMethod().name(),
+                inventory.getSummary(),
+                inventory.getOperationId(),
+                List.of(),
+                parseJson(inventory.getRequestSchema()),
+                parseJson(inventory.getResponseSchema()),
+                authPayload(inventory.isAuthRequired()),
+                tags(inventory.getDomainTag())
         );
     }
 
-    private ApiPayload toApiPayload(ApiEndpoint endpoint) {
-        return new ApiPayload(
-                endpoint.getMethod().name() + ":" + endpoint.getPath(),
-                endpoint.getMethod().name(),
+    private ScenarioEndpointPayload toScenarioEndpointPayload(ApiEndpoint endpoint) {
+        return new ScenarioEndpointPayload(
+                endpointId(endpoint.getMethod().name(), endpoint.getPath()),
                 endpoint.getPath(),
+                endpoint.getMethod().name(),
+                endpoint.getControllerName(),
                 endpoint.getDomainTag(),
+                List.of(),
                 parseJson(endpoint.getRequestSchema()),
                 parseJson(endpoint.getResponseSchema()),
                 null,
-                endpoint.isDeprecated(),
-                null
+                tags(endpoint.getDomainTag())
+        );
+    }
+
+    private ScenarioAuthPayload authPayload(boolean authRequired) {
+        return authRequired ? new ScenarioAuthPayload("bearer", "header") : new ScenarioAuthPayload("none", null);
+    }
+
+    private List<String> tags(String tag) {
+        return tag == null || tag.isBlank() ? List.of() : List.of(tag);
+    }
+
+    private String endpointId(String method, String path) {
+        return method + ":" + path;
+    }
+
+    private List<ScenarioExistingTestCasePayload> existingTestCases(List<ApiInventory> inventories, List<ApiEndpoint> endpoints) {
+        List<TestCase> testCases = new ArrayList<>();
+        if (!inventories.isEmpty()) {
+            inventories.forEach(inventory -> testCases.addAll(testCaseRepository.findTop3ByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(inventory.getId())));
+        } else if (!endpoints.isEmpty()) {
+            testCases.addAll(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(
+                    endpoints.stream().map(ApiEndpoint::getId).toList()
+            ));
+        }
+        LinkedHashSet<Long> seen = new LinkedHashSet<>();
+        return testCases.stream()
+                .filter(testCase -> seen.add(testCase.getId()))
+                .limit(20)
+                .map(this::toScenarioExistingTestCasePayload)
+                .toList();
+    }
+
+    private ScenarioExistingTestCasePayload toScenarioExistingTestCasePayload(TestCase testCase) {
+        ApiInventory inventory = testCase.getApiInventory();
+        ApiEndpoint endpoint = testCase.getApiEndpoint();
+        String endpointId = inventory == null
+                ? endpointId(endpoint.getMethod().name(), endpoint.getPath())
+                : endpointId(inventory.getMethod().name(), inventory.getEndpointPath());
+        return new ScenarioExistingTestCasePayload(
+                String.valueOf(testCase.getId()),
+                endpointId,
+                testCase.getName(),
+                testCase.getType().name(),
+                testCase.getDescription()
+        );
+    }
+
+    private ScenarioRecommendationResponse toRecommendation(ScenarioPayload scenario, ScenarioType fallbackType) {
+        String reason = scenario.meta() == null || scenario.meta().rationale() == null
+                ? scenario.description()
+                : scenario.meta().rationale();
+        return new ScenarioRecommendationResponse(
+                scenario.name(),
+                fallbackType == null ? ScenarioType.HAPPY_PATH : fallbackType,
+                reason
         );
     }
 
@@ -249,21 +357,10 @@ public class ScenarioService {
         }
     }
 
-    private flowops.scenario.domain.entity.ScenarioType parseScenarioType(String value, flowops.scenario.domain.entity.ScenarioType fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback == null ? flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH : fallback;
-        }
-        try {
-            return flowops.scenario.domain.entity.ScenarioType.valueOf(value);
-        } catch (IllegalArgumentException ignored) {
-            return fallback == null ? flowops.scenario.domain.entity.ScenarioType.HAPPY_PATH : fallback;
-        }
-    }
-
     @Transactional(readOnly = true)
     public Scenario getScenario(Long scenarioId) {
         return scenarioRepository.findById(scenarioId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "시나리오를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Scenario not found."));
     }
 
     private List<ScenarioStepResponse> replaceSteps(Scenario scenario, List<ScenarioStepRequest> steps) {
@@ -326,7 +423,7 @@ public class ScenarioService {
                 || environment.getBranchName().isBlank()
                 || environment.getBranchName().equals(apiInventory.getBranchName());
         if (!repositoryMatches || !branchMatches) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "시나리오 단계의 API 인벤토리가 시나리오 환경에 속하지 않습니다.");
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario step API inventory does not belong to the scenario environment.");
         }
     }
 }

@@ -16,6 +16,8 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
 
     List<ApiInventory> findByProjectIdAndRepositoryInfoIdAndBranchNameOrderByIdDesc(Long projectId, Long repositoryId, String branchName);
 
+    List<ApiInventory> findByRepositoryInfoAppIdOrderByIdDesc(Long appId);
+
     Optional<ApiInventory> findByIdAndProjectId(Long id, Long projectId);
 
     @Query("""
