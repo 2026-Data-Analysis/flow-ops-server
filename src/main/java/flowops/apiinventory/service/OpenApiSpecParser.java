@@ -3,6 +3,7 @@ package flowops.apiinventory.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import flowops.apiinventory.domain.DomainTag;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -105,25 +106,9 @@ public class OpenApiSpecParser {
     private String domainTag(String path, JsonNode operation) {
         JsonNode tags = operation.path("tags");
         if (tags.isArray() && tags.size() > 0 && tags.get(0).isTextual() && !tags.get(0).asText().isBlank()) {
-            return normalizeDomainTag(tags.get(0).asText());
+            return DomainTag.normalize(tags.get(0).asText());
         }
-        String normalizedPath = path == null ? "" : path.trim();
-        String[] segments = normalizedPath.split("/");
-        for (String segment : segments) {
-            if (!segment.isBlank() && !segment.startsWith("{")) {
-                return normalizeDomainTag(segment);
-            }
-        }
-        return null;
-    }
-
-    private String normalizeDomainTag(String value) {
-        String normalized = value.trim()
-                .replaceAll("([a-z])([A-Z])", "$1_$2")
-                .replaceAll("[^A-Za-z0-9]+", "_")
-                .replaceAll("^_+|_+$", "")
-                .toUpperCase(Locale.ROOT);
-        return normalized.isBlank() ? null : normalized;
+        return DomainTag.fromPath(path);
     }
 
     private String requestSchema(JsonNode pathItem, JsonNode operation) {

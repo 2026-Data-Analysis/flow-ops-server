@@ -1,5 +1,6 @@
 package flowops.apiinventory.service;
 
+import flowops.apiinventory.domain.DomainTag;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.domain.entity.ApiInventorySource;
@@ -53,7 +54,7 @@ public class ApiInventoryService {
                 .method(request.method())
                 .endpointPath(request.endpointPath())
                 .operationId(request.operationId())
-                .domainTag(request.domainTag())
+                .domainTag(DomainTag.resolve(request.domainTag(), request.endpointPath()))
                 .branchName(request.branchName())
                 .summary(request.summary())
                 .sourceType(request.sourceType())
@@ -175,7 +176,8 @@ public class ApiInventoryService {
         if (normalizedDomainTag == null) {
             return true;
         }
-        return apiInventory.getDomainTag() != null && apiInventory.getDomainTag().equalsIgnoreCase(normalizedDomainTag);
+        String resolvedDomainTag = DomainTag.resolve(apiInventory.getDomainTag(), apiInventory.getEndpointPath());
+        return resolvedDomainTag != null && resolvedDomainTag.equalsIgnoreCase(normalizedDomainTag);
     }
 
     private boolean matchesTestLevel(ApiInventory apiInventory, TestLevel testLevel) {

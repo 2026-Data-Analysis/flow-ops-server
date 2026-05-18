@@ -1,5 +1,6 @@
 package flowops.apiinventory.service;
 
+import flowops.apiinventory.domain.DomainTag;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.domain.entity.ApiInventorySource;
@@ -263,18 +264,7 @@ public class ApiInventoryImportService {
     }
 
     private String inferDomainTag(String path) {
-        if (path == null || path.isBlank()) {
-            return null;
-        }
-        for (String segment : path.split("/")) {
-            if (!segment.isBlank() && !segment.startsWith("{")) {
-                return segment.replaceAll("([a-z])([A-Z])", "$1_$2")
-                        .replaceAll("[^A-Za-z0-9]+", "_")
-                        .replaceAll("^_+|_+$", "")
-                        .toUpperCase(Locale.ROOT);
-            }
-        }
-        return null;
+        return DomainTag.fromPath(path);
     }
 
     private String normalizePath(String path) {

@@ -1,5 +1,6 @@
 package flowops.apiinventory.dto.response;
 
+import flowops.apiinventory.domain.DomainTag;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.domain.entity.ApiInventorySource;
@@ -60,7 +61,7 @@ public record ApiInventoryResponse(
                 apiInventory.getRepositoryInfo() == null ? null : apiInventory.getRepositoryInfo().getId(),
                 apiInventory.getMethod(),
                 apiInventory.getEndpointPath(),
-                apiInventory.getDomainTag(),
+                DomainTag.resolve(apiInventory.getDomainTag(), apiInventory.getEndpointPath()),
                 apiInventory.getOperationId(),
                 apiInventory.getBranchName(),
                 apiInventory.getSummary(),
