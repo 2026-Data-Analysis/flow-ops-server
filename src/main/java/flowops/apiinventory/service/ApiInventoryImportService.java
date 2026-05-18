@@ -107,6 +107,7 @@ public class ApiInventoryImportService {
                         .method(operation.method())
                         .endpointPath(operation.endpointPath())
                         .operationId(operation.operationId())
+                        .domainTag(operation.domainTag())
                         .branchName(branchName)
                         .summary(operation.summary())
                         .sourceType(ApiInventorySource.OPENAPI)
@@ -145,6 +146,7 @@ public class ApiInventoryImportService {
                                 .method(operation.method())
                                 .endpointPath(operation.endpointPath())
                                 .operationId(operation.operationId())
+                                .domainTag(operation.domainTag())
                                 .branchName(branchName)
                                 .summary(operation.summary())
                                 .sourceType(ApiInventorySource.SPRING_CONTROLLER)
@@ -178,6 +180,7 @@ public class ApiInventoryImportService {
                             method,
                             joinPaths(basePath, path),
                             methodMatcher.group(1),
+                            inferDomainTag(joinPaths(basePath, path)),
                             null,
                             "Spring MVC",
                             false,
@@ -257,6 +260,21 @@ public class ApiInventoryImportService {
             return normalizedBase;
         }
         return normalizedBase + normalizedPath;
+    }
+
+    private String inferDomainTag(String path) {
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        for (String segment : path.split("/")) {
+            if (!segment.isBlank() && !segment.startsWith("{")) {
+                return segment.replaceAll("([a-z])([A-Z])", "$1_$2")
+                        .replaceAll("[^A-Za-z0-9]+", "_")
+                        .replaceAll("^_+|_+$", "")
+                        .toUpperCase(Locale.ROOT);
+            }
+        }
+        return null;
     }
 
     private String normalizePath(String path) {

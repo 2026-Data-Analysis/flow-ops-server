@@ -55,6 +55,10 @@ public class ApiInventory extends BaseEntity {
     @Comment("OpenAPI operationId")
     private String operationId;
 
+    @Column(name = "domain_tag", length = 100)
+    @Comment("도메인 태그")
+    private String domainTag;
+
     @Column(name = "branch_name", length = 100)
     @Comment("API 명세가 파싱된 브랜치 이름")
     private String branchName;
@@ -96,6 +100,7 @@ public class ApiInventory extends BaseEntity {
             ApiHttpMethod method,
             String endpointPath,
             String operationId,
+            String domainTag,
             String branchName,
             String summary,
             ApiInventorySource sourceType,
@@ -110,6 +115,7 @@ public class ApiInventory extends BaseEntity {
         this.method = method;
         this.endpointPath = endpointPath;
         this.operationId = operationId;
+        this.domainTag = domainTag;
         this.branchName = branchName;
         this.summary = summary;
         this.sourceType = sourceType;

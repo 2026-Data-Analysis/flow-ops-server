@@ -20,6 +20,10 @@ public interface ExecutionStepLogRepository extends JpaRepository<ExecutionStepL
 
     long countByTestCaseApiEndpointIdAndStatus(Long apiId, ExecutionStepStatus status);
 
+    long countByTestCaseApiInventoryId(Long inventoryId);
+
+    long countByTestCaseApiInventoryIdAndStatus(Long inventoryId, ExecutionStepStatus status);
+
     @Query("""
             select log
             from ExecutionStepLog log

@@ -88,12 +88,14 @@ public class GithubService {
 
         if (request.appId() != null) {
             App app = appService.getApp(request.appId());
-            branches.forEach(branch -> environmentProvisioningService.ensureBranchEnvironment(
-                    app,
-                    savedRepositoryInfo,
-                    branch.name(),
-                    branch.isDefault()
-            ));
+            branches.stream()
+                    .filter(BranchResponse::selected)
+                    .forEach(branch -> environmentProvisioningService.ensureBranchEnvironment(
+                            app,
+                            savedRepositoryInfo,
+                            branch.name(),
+                            branch.isDefault()
+                    ));
         }
 
         return RepositoryResponse.from(savedRepositoryInfo, branches, List.of());

@@ -50,7 +50,6 @@ public record ApiInventoryResponse(
 ) {
     public static ApiInventoryResponse from(
             ApiInventory apiInventory,
-            String domainTag,
             List<TestLevel> testLevels,
             long totalTestCount,
             double coveragePercentage
@@ -61,7 +60,7 @@ public record ApiInventoryResponse(
                 apiInventory.getRepositoryInfo() == null ? null : apiInventory.getRepositoryInfo().getId(),
                 apiInventory.getMethod(),
                 apiInventory.getEndpointPath(),
-                domainTag,
+                apiInventory.getDomainTag(),
                 apiInventory.getOperationId(),
                 apiInventory.getBranchName(),
                 apiInventory.getSummary(),

@@ -19,6 +19,8 @@ public record ApiInventoryDetailResponse(
         ApiHttpMethod method,
         @Schema(description = "엔드포인트 경로", example = "/orders/{orderId}")
         String endpointPath,
+        @Schema(description = "도메인 태그", example = "ORDER")
+        String domainTag,
         @Schema(description = "오퍼레이션 ID", example = "getOrder")
         String operationId,
         @Schema(description = "브랜치명", example = "main")
@@ -39,24 +41,21 @@ public record ApiInventoryDetailResponse(
         String requestSchema,
         @Schema(description = "응답 스키마")
         String responseSchema,
-        @Schema(description = "연결된 테스트 위계 목록")
+        @Schema(description = "연결된 테스트 레벨 목록")
         List<TestLevel> testLevels,
         @Schema(description = "연결된 테스트 수", example = "8")
         long totalTestCount,
         @Schema(description = "커버리지 비율", example = "60.0")
         double coveragePercentage,
-        @Schema(description = "실행 수 대비 성공률", example = "75.0")
-        double successRate,
-        @Schema(description = "상위 샘플 테스트 케이스 3개")
-        List<SampleTestCaseResponse> sampleTestCases
+        @Schema(description = "실행 대비 성공률", example = "75.0")
+        double successRate
 ) {
     public static ApiInventoryDetailResponse from(
             ApiInventory apiInventory,
             List<TestLevel> testLevels,
             long totalTestCount,
             double coveragePercentage,
-            double successRate,
-            List<SampleTestCaseResponse> sampleTestCases
+            double successRate
     ) {
         return new ApiInventoryDetailResponse(
                 apiInventory.getId(),
@@ -64,6 +63,7 @@ public record ApiInventoryDetailResponse(
                 apiInventory.getRepositoryInfo() == null ? null : apiInventory.getRepositoryInfo().getId(),
                 apiInventory.getMethod(),
                 apiInventory.getEndpointPath(),
+                apiInventory.getDomainTag(),
                 apiInventory.getOperationId(),
                 apiInventory.getBranchName(),
                 apiInventory.getSummary(),
@@ -77,8 +77,7 @@ public record ApiInventoryDetailResponse(
                 testLevels,
                 totalTestCount,
                 coveragePercentage,
-                successRate,
-                sampleTestCases
+                successRate
         );
     }
 }

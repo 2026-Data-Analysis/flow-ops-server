@@ -1,8 +1,5 @@
 package flowops.apiinventory.service;
 
-import flowops.api.domain.entity.ApiEndpoint;
-import flowops.api.domain.entity.ApiMethod;
-import flowops.api.repository.ApiEndpointRepository;
 import flowops.apiinventory.domain.entity.ApiHttpMethod;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.domain.entity.ApiInventorySource;
@@ -12,7 +9,6 @@ import flowops.apiinventory.dto.response.ApiInventoryBranchSummaryResponse;
 import flowops.apiinventory.dto.response.ApiInventoryDetailResponse;
 import flowops.apiinventory.dto.response.ApiInventoryListResponse;
 import flowops.apiinventory.dto.response.ApiInventoryResponse;
-import flowops.apiinventory.dto.response.SampleTestCaseResponse;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.execution.domain.entity.ExecutionStepStatus;
 import flowops.execution.repository.ExecutionStepLogRepository;
@@ -26,7 +22,6 @@ import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,7 +37,6 @@ public class ApiInventoryService {
     private final ApiInventoryRepository apiInventoryRepository;
     private final ProjectService projectService;
     private final GithubService githubService;
-    private final ApiEndpointRepository apiEndpointRepository;
     private final TestCaseRepository testCaseRepository;
     private final ExecutionStepLogRepository executionStepLogRepository;
 
@@ -59,6 +53,7 @@ public class ApiInventoryService {
                 .method(request.method())
                 .endpointPath(request.endpointPath())
                 .operationId(request.operationId())
+                .domainTag(request.domainTag())
                 .branchName(request.branchName())
                 .summary(request.summary())
                 .sourceType(request.sourceType())
@@ -127,7 +122,6 @@ public class ApiInventoryService {
     public ApiInventoryDetailResponse getInventoryDetail(Long projectId, Long inventoryId) {
         ApiInventory apiInventory = apiInventoryRepository.findByIdAndProjectId(inventoryId, projectId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 인벤토리를 찾을 수 없습니다."));
-        Optional<ApiEndpoint> endpoint = findMatchingEndpoint(apiInventory);
         long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
         double coverage = Math.min(100.0, totalTestCount * 20.0);
         List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
@@ -135,24 +129,18 @@ public class ApiInventoryService {
                 .map(TestCase::getTestLevel)
                 .distinct()
                 .toList();
-        double successRate = endpoint.map(value -> successRate(value.getId())).orElse(0.0);
-        List<SampleTestCaseResponse> sampleTestCases = testCaseRepository.findTop3ByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
-                .stream()
-                .map(SampleTestCaseResponse::from)
-                .toList();
+        double successRate = successRateByInventory(apiInventory.getId());
 
         return ApiInventoryDetailResponse.from(
                 apiInventory,
                 testLevels,
                 totalTestCount,
                 coverage,
-                successRate,
-                sampleTestCases
+                successRate
         );
     }
 
     private ApiInventoryResponse toListItem(ApiInventory apiInventory) {
-        Optional<ApiEndpoint> endpoint = findMatchingEndpoint(apiInventory);
         long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
         double coverage = Math.min(100.0, totalTestCount * 20.0);
         List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
@@ -163,7 +151,6 @@ public class ApiInventoryService {
 
         return ApiInventoryResponse.from(
                 apiInventory,
-                endpoint.map(ApiEndpoint::getDomainTag).orElse(null),
                 testLevels,
                 totalTestCount,
                 coverage
@@ -183,20 +170,12 @@ public class ApiInventoryService {
         return new ApiInventoryBranchSummaryResponse(branchName, inventories.size(), averageCoverage, totalTestCount);
     }
 
-    private Optional<ApiEndpoint> findMatchingEndpoint(ApiInventory apiInventory) {
-        return toApiMethod(apiInventory.getMethod())
-                .flatMap(method -> apiEndpointRepository.findFirstByMethodAndPath(method, apiInventory.getEndpointPath()));
-    }
-
     private boolean matchesDomainTag(ApiInventory apiInventory, String domainTag) {
         String normalizedDomainTag = blankToNull(domainTag);
         if (normalizedDomainTag == null) {
             return true;
         }
-        return findMatchingEndpoint(apiInventory)
-                .map(ApiEndpoint::getDomainTag)
-                .filter(tag -> tag != null && tag.equalsIgnoreCase(normalizedDomainTag))
-                .isPresent();
+        return apiInventory.getDomainTag() != null && apiInventory.getDomainTag().equalsIgnoreCase(normalizedDomainTag);
     }
 
     private boolean matchesTestLevel(ApiInventory apiInventory, TestLevel testLevel) {
@@ -212,20 +191,15 @@ public class ApiInventoryService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private Optional<ApiMethod> toApiMethod(ApiHttpMethod method) {
-        try {
-            return Optional.of(ApiMethod.valueOf(method.name()));
-        } catch (IllegalArgumentException ex) {
-            return Optional.empty();
-        }
-    }
-
-    private double successRate(Long apiId) {
-        long totalExecutions = executionStepLogRepository.countByTestCaseApiEndpointId(apiId);
+    private double successRateByInventory(Long inventoryId) {
+        long totalExecutions = executionStepLogRepository.countByTestCaseApiInventoryId(inventoryId);
         if (totalExecutions == 0) {
             return 0.0;
         }
-        long successExecutions = executionStepLogRepository.countByTestCaseApiEndpointIdAndStatus(apiId, ExecutionStepStatus.SUCCESS);
+        long successExecutions = executionStepLogRepository.countByTestCaseApiInventoryIdAndStatus(
+                inventoryId,
+                ExecutionStepStatus.SUCCESS
+        );
         return Math.round((successExecutions * 1000.0 / totalExecutions)) / 10.0;
     }
 }

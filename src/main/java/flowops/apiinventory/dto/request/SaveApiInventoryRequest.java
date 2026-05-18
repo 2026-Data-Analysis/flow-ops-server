@@ -16,6 +16,8 @@ public record SaveApiInventoryRequest(
         @NotBlank @Size(max = 500) String endpointPath,
         @Schema(description = "오퍼레이션 ID", example = "getOrder")
         @Size(max = 150) String operationId,
+        @Schema(description = "도메인 태그", example = "ORDER")
+        @Size(max = 100) String domainTag,
         @Schema(description = "브랜치명", example = "main")
         @Size(max = 100) String branchName,
         @Schema(description = "요약", example = "주문 상세 조회")

@@ -52,6 +52,7 @@ public class OpenApiSpecParser {
                                 ApiHttpMethod.valueOf(methodName.toUpperCase(Locale.ROOT)),
                                 pathEntry.getKey(),
                                 textOrNull(operation, "operationId"),
+                                domainTag(pathEntry.getKey(), operation),
                                 textOrNull(operation, "summary"),
                                 specVersion,
                                 authRequired(operation, globalAuthRequired),
@@ -99,6 +100,30 @@ public class OpenApiSpecParser {
 
     private boolean hasAuthRequirement(JsonNode securityNode) {
         return securityNode.isArray() && securityNode.size() > 0;
+    }
+
+    private String domainTag(String path, JsonNode operation) {
+        JsonNode tags = operation.path("tags");
+        if (tags.isArray() && tags.size() > 0 && tags.get(0).isTextual() && !tags.get(0).asText().isBlank()) {
+            return normalizeDomainTag(tags.get(0).asText());
+        }
+        String normalizedPath = path == null ? "" : path.trim();
+        String[] segments = normalizedPath.split("/");
+        for (String segment : segments) {
+            if (!segment.isBlank() && !segment.startsWith("{")) {
+                return normalizeDomainTag(segment);
+            }
+        }
+        return null;
+    }
+
+    private String normalizeDomainTag(String value) {
+        String normalized = value.trim()
+                .replaceAll("([a-z])([A-Z])", "$1_$2")
+                .replaceAll("[^A-Za-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "")
+                .toUpperCase(Locale.ROOT);
+        return normalized.isBlank() ? null : normalized;
     }
 
     private String requestSchema(JsonNode pathItem, JsonNode operation) {
