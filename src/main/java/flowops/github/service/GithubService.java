@@ -54,7 +54,7 @@ public class GithubService {
         Project project = projectService.getProjectOrCreateDefault(projectId);
         RepositoryName repositoryName = RepositoryName.from(request.fullName());
         return repositoryInfoRepository.findByFullName(repositoryName.fullName())
-                .map(this::toResponse)
+                .map(repositoryInfo -> connectExistingRepositoryApp(repositoryInfo, request.appId()))
                 .orElseGet(() -> registerNewRepository(project, repositoryName, request));
     }
 
@@ -73,6 +73,7 @@ public class GithubService {
 
         RepositoryInfo repositoryInfo = RepositoryInfo.builder()
                 .project(project)
+                .app(request.appId() == null ? null : appService.getApp(request.appId()))
                 .provider(RepositoryProvider.GITHUB)
                 .repositoryName(repositoryName.name())
                 .fullName(snapshot.fullName())
@@ -86,12 +87,11 @@ public class GithubService {
         branches.forEach(branch -> repositoryInfo.addBranch(branch.name(), branch.selected(), branch.isDefault()));
         RepositoryInfo savedRepositoryInfo = repositoryInfoRepository.save(repositoryInfo);
 
-        if (request.appId() != null) {
-            App app = appService.getApp(request.appId());
+        if (savedRepositoryInfo.getApp() != null) {
             branches.stream()
                     .filter(BranchResponse::selected)
                     .forEach(branch -> environmentProvisioningService.ensureBranchEnvironment(
-                            app,
+                            savedRepositoryInfo.getApp(),
                             savedRepositoryInfo,
                             branch.name(),
                             branch.isDefault()
@@ -99,6 +99,13 @@ public class GithubService {
         }
 
         return RepositoryResponse.from(savedRepositoryInfo, branches, List.of());
+    }
+
+    private RepositoryResponse connectExistingRepositoryApp(RepositoryInfo repositoryInfo, Long appId) {
+        if (appId != null && repositoryInfo.getApp() == null) {
+            repositoryInfo.connectApp(appService.getApp(appId));
+        }
+        return toResponse(repositoryInfo);
     }
 
     @Transactional(readOnly = true)

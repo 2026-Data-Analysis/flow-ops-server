@@ -1,5 +1,6 @@
 package flowops.github.domain.entity;
 
+import flowops.app.domain.entity.App;
 import flowops.global.common.BaseEntity;
 import flowops.project.domain.entity.Project;
 import jakarta.persistence.CascadeType;
@@ -40,6 +41,10 @@ public class RepositoryInfo extends BaseEntity {
     @JoinColumn(name = "project_id", nullable = false)
     @Comment("저장소가 연결된 프로젝트")
     private Project project;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "app_id")
+    private App app;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -82,6 +87,7 @@ public class RepositoryInfo extends BaseEntity {
     @Builder
     private RepositoryInfo(
             Project project,
+            App app,
             RepositoryProvider provider,
             String repositoryName,
             String fullName,
@@ -92,6 +98,7 @@ public class RepositoryInfo extends BaseEntity {
             LocalDateTime lastSyncedAt
     ) {
         this.project = project;
+        this.app = app;
         this.provider = provider;
         this.repositoryName = repositoryName;
         this.fullName = fullName;
@@ -109,6 +116,10 @@ public class RepositoryInfo extends BaseEntity {
                 .selected(selected)
                 .defaultBranch(defaultBranch)
                 .build());
+    }
+
+    public void connectApp(App app) {
+        this.app = app;
     }
 
     public String getOwner() {

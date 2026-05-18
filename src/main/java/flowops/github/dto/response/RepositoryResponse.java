@@ -11,6 +11,8 @@ public record RepositoryResponse(
         Long id,
         @Schema(description = "프로젝트 ID", example = "1")
         Long projectId,
+        @Schema(description = "Linked app ID", example = "1")
+        Long appId,
         @Schema(description = "전체 저장소 이름", example = "flowops/backend")
         String fullName,
         @Schema(description = "저장소 URL", example = "https://github.com/flowops/backend")
@@ -32,6 +34,7 @@ public record RepositoryResponse(
         return new RepositoryResponse(
                 repositoryInfo.getId(),
                 repositoryInfo.getProject().getId(),
+                repositoryInfo.getApp() == null ? null : repositoryInfo.getApp().getId(),
                 repositoryInfo.getFullName(),
                 repositoryInfo.getRepositoryUrl(),
                 repositoryInfo.getDefaultBranch(),
