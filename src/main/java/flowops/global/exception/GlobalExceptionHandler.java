@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -53,11 +54,35 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.failure(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientAbortException(AsyncRequestNotUsableException exception) {
+        log.debug("Client disconnected before response could be written: {}", exception.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnhandledException(Exception exception) {
+        if (isClientAbort(exception)) {
+            log.debug("Client disconnected before response could be written: {}", exception.getMessage());
+            return null;
+        }
         log.error("Unhandled exception", exception);
         return ResponseEntity
                 .status(ErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus())
                 .body(ApiResponse.failure(ErrorCode.INTERNAL_SERVER_ERROR));
+    }
+
+    private boolean isClientAbort(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String message = current.getMessage();
+            if (className.contains("ClientAbortException")
+                    || className.contains("AsyncRequestNotUsableException")
+                    || (message != null && message.contains("Broken pipe"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
