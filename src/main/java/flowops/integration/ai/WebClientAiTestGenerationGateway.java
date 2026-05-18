@@ -33,11 +33,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(prefix = "external.ai", name = "mock-enabled", havingValue = "false")
+@Slf4j
 public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway {
 
     private static final String AGENT = "TEST_CASE_GENERATOR";
@@ -64,6 +66,10 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
 
     @Override
     public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds) {
+        log.info("Calling AI test case generator. generationId={}, appId={}, apiCount={}",
+                generation.getId(),
+                generation.getApp() == null ? null : generation.getApp().getId(),
+                apiIds == null ? 0 : apiIds.size());
         Map<String, Long> endpointIdToApiId = new LinkedHashMap<>();
         List<ApiSelection> selections = apiIds.stream()
                 .map(this::resolveSelection)
@@ -96,11 +102,19 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 null
         ));
 
-        return toCommands(response, endpointIdToApiId);
+        List<AiGeneratedDraftCommand> commands = toCommands(response, endpointIdToApiId);
+        log.info("AI test case generator completed. generationId={}, draftCount={}",
+                generation.getId(),
+                commands.size());
+        return commands;
     }
 
     @Override
     public List<AiGeneratedDraftCommand> generateDraftsFromFailure(TestGeneration generation, Execution execution, ExecutionStepLog failedLog) {
+        log.info("Calling AI failure test generator. generationId={}, executionId={}, failedLogId={}",
+                generation.getId(),
+                execution.getId(),
+                failedLog.getId());
         ApiEndpoint endpoint = resolveEndpoint(failedLog);
         String endpointId = endpointId(endpoint);
         Map<String, Long> endpointIdToApiId = Map.of(endpointId, endpoint.getId());
@@ -135,7 +149,11 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 )
         ));
 
-        return toCommands(response, endpointIdToApiId);
+        List<AiGeneratedDraftCommand> commands = toCommands(response, endpointIdToApiId);
+        log.info("AI failure test generator completed. generationId={}, draftCount={}",
+                generation.getId(),
+                commands.size());
+        return commands;
     }
 
     private ApiSelection resolveSelection(Long apiId) {

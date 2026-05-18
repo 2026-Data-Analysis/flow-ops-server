@@ -82,10 +82,23 @@ public class GithubWebhookService {
     }
 
     private boolean isMergePush(JsonNode root) {
-        String message = root.path("head_commit").path("message").asText("");
-        return message.startsWith("Merge pull request")
-                || message.startsWith("Merge branch")
-                || message.startsWith("Merged ");
+        if (isMergeCommitMessage(root.path("head_commit").path("message").asText(""))) {
+            return true;
+        }
+        JsonNode commits = root.path("commits");
+        if (!commits.isArray()) {
+            return false;
+        }
+        for (JsonNode commit : commits) {
+            if (isMergeCommitMessage(commit.path("message").asText(""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isMergeCommitMessage(String message) {
+        return message != null && message.startsWith("Merge");
     }
 
     private Optional<String> text(JsonNode node) {

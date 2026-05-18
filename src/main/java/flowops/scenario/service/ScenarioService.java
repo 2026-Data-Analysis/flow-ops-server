@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScenarioService {
 
     private final ScenarioRepository scenarioRepository;
@@ -147,7 +149,14 @@ public class ScenarioService {
 
     @Transactional(readOnly = true)
     public List<ScenarioRecommendationResponse> recommend(RecommendScenarioRequest request) {
-        if (externalServiceProperties.ai().mockEnabled() || request == null || request.appId() == null) {
+        if (externalServiceProperties.ai().mockEnabled()) {
+            log.warn("Scenario recommendation returned mock data because external.ai.mock-enabled=true");
+            return mockRecommendations();
+        }
+        if (request == null || request.appId() == null) {
+            log.warn("Scenario recommendation returned mock data because request or appId is missing. requestPresent={}, appId={}",
+                    request != null,
+                    request == null ? null : request.appId());
             return mockRecommendations();
         }
         App app = appService.getApp(request.appId());
@@ -155,6 +164,12 @@ public class ScenarioService {
         List<ApiEndpoint> endpoints = request.apiIds() == null || request.apiIds().isEmpty()
                 ? apiEndpointRepository.findByAppId(app.getId())
                 : request.apiIds().stream().map(apiEndpointService::getApiEndpoint).toList();
+        log.info("Calling AI scenario builder. appId={}, environmentId={}, apiCount={}, requestedBy={}, mockEnabled={}",
+                app.getId(),
+                environment == null ? null : environment.getId(),
+                endpoints.size(),
+                request.requestedBy(),
+                externalServiceProperties.ai().mockEnabled());
         ScenarioBuilderResponse response = aiClient.buildScenario(new ScenarioBuilderRequest(
                 "SCENARIO_BUILDER",
                 UUID.randomUUID().toString(),
@@ -173,8 +188,15 @@ public class ScenarioService {
                 List.of()
         ));
         if (response == null || response.name() == null) {
+            log.warn("AI scenario builder returned empty response. appId={}, environmentId={}",
+                    app.getId(),
+                    environment == null ? null : environment.getId());
             return List.of();
         }
+        log.info("AI scenario builder completed. appId={}, scenarioName={}, scenarioType={}",
+                app.getId(),
+                response.name(),
+                response.type());
         return List.of(new ScenarioRecommendationResponse(
                 response.name(),
                 parseScenarioType(response.type(), request.scenarioType()),

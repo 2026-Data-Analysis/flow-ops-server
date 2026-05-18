@@ -3,17 +3,29 @@ package flowops.integration.ai;
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.testgeneration.domain.entity.TestGeneration;
+import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(prefix = "external.ai", name = "mock-enabled", havingValue = "true", matchIfMissing = true)
+@Slf4j
 public class MockAiTestGenerationGateway implements AiTestGenerationGateway {
+
+    @PostConstruct
+    void logMockGatewayEnabled() {
+        log.warn("Mock AI test generation gateway is enabled because external.ai.mock-enabled=true or missing");
+    }
 
     @Override
     public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds) {
+        log.warn("Returning mock AI test drafts. generationId={}, appId={}, apiCount={}",
+                generation.getId(),
+                generation.getApp() == null ? null : generation.getApp().getId(),
+                apiIds == null ? 0 : apiIds.size());
         List<AiGeneratedDraftCommand> drafts = new ArrayList<>();
         for (Long apiId : apiIds) {
             drafts.add(new AiGeneratedDraftCommand(
@@ -48,6 +60,10 @@ public class MockAiTestGenerationGateway implements AiTestGenerationGateway {
 
     @Override
     public List<AiGeneratedDraftCommand> generateDraftsFromFailure(TestGeneration generation, Execution execution, ExecutionStepLog failedLog) {
+        log.warn("Returning mock AI failure drafts. generationId={}, executionId={}, failedLogId={}",
+                generation.getId(),
+                execution.getId(),
+                failedLog.getId());
         Long apiId = failedLog.getTestCase() != null
                 ? failedLog.getTestCase().getApiEndpoint().getId()
                 : failedLog.getScenarioStep() != null

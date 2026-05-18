@@ -46,3 +46,9 @@ services:
         value: "2"
       - key: GITHUB_RETRY_BACKOFF_MILLIS
         value: "500"
+      - key: AI_MOCK_ENABLED
+        value: "false"
+      - key: AI_SERVER_BASE_URL
+        sync: false
+      - key: AI_SERVER_API_KEY
+        sync: false

@@ -22,12 +22,14 @@ import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierRequest;
 import flowops.integration.ai.AiAgentContracts.TestStrategyClassifierResponse;
 import java.time.Duration;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Component
+@Slf4j
 public class AiWebClient implements AiClient {
 
     private final WebClient aiWebClient;
@@ -87,17 +89,37 @@ public class AiWebClient implements AiClient {
     }
 
     private <T, R> R post(String path, T request, Class<R> responseType) {
-        return aiWebClient.post()
-                .uri(path)
-                .bodyValue(request)
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, response -> response.bodyToMono(String.class)
-                        .defaultIfEmpty("AI 서버 요청에 실패했습니다.")
-                        .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
-                .bodyToMono(responseType)
-                .timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()))
-                .onErrorMap(ex -> ex instanceof ApiException ? ex
-                        : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI 서버 요청에 실패했습니다."))
-                .block();
+        long startedAt = System.currentTimeMillis();
+        log.info("AI request started. path={}, responseType={}, baseUrl={}, mockEnabled={}",
+                path,
+                responseType.getSimpleName(),
+                properties.ai().baseUrl(),
+                properties.ai().mockEnabled());
+        try {
+            R response = aiWebClient.post()
+                    .uri(path)
+                    .bodyValue(request)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.bodyToMono(String.class)
+                            .defaultIfEmpty("AI server request failed.")
+                            .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
+                    .bodyToMono(responseType)
+                    .timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()))
+                    .onErrorMap(ex -> ex instanceof ApiException ? ex
+                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI server request failed."))
+                    .block();
+            log.info("AI request completed. path={}, responseType={}, durationMs={}",
+                    path,
+                    responseType.getSimpleName(),
+                    System.currentTimeMillis() - startedAt);
+            return response;
+        } catch (RuntimeException exception) {
+            log.warn("AI request failed. path={}, responseType={}, durationMs={}, error={}",
+                    path,
+                    responseType.getSimpleName(),
+                    System.currentTimeMillis() - startedAt,
+                    exception.getMessage());
+            throw exception;
+        }
     }
 }
