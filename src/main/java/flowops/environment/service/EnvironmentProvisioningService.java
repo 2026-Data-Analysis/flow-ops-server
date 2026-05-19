@@ -21,7 +21,7 @@ public class EnvironmentProvisioningService {
 
     @Transactional
     public void ensureBranchEnvironment(App app, RepositoryInfo repositoryInfo, String branchName, boolean defaultBranch) {
-        if (branchName == null || branchName.isBlank() || environmentRepository.existsByAppIdAndBranchName(app.getId(), branchName)) {
+        if (branchName == null || branchName.isBlank() || environmentExists(app, repositoryInfo, branchName)) {
             return;
         }
         environmentRepository.save(Environment.builder()
@@ -35,5 +35,16 @@ public class EnvironmentProvisioningService {
                 .defaultTestLevel(defaultBranch ? TestLevel.SMOKE : TestLevel.REGRESSION)
                 .defaultTestLevelSource(TestLevelSource.AI_RECOMMENDED)
                 .build());
+    }
+
+    private boolean environmentExists(App app, RepositoryInfo repositoryInfo, String branchName) {
+        if (repositoryInfo != null && repositoryInfo.getId() != null) {
+            return environmentRepository.existsByAppIdAndRepositoryInfoIdAndBranchName(
+                    app.getId(),
+                    repositoryInfo.getId(),
+                    branchName
+            );
+        }
+        return environmentRepository.existsByAppIdAndBranchName(app.getId(), branchName);
     }
 }

@@ -103,9 +103,22 @@ public class GithubService {
 
     private RepositoryResponse connectExistingRepositoryApp(RepositoryInfo repositoryInfo, Long appId) {
         if (appId != null && repositoryInfo.getApp() == null) {
-            repositoryInfo.connectApp(appService.getApp(appId));
+            App app = appService.getApp(appId);
+            repositoryInfo.connectApp(app);
+            ensureSelectedBranchEnvironments(app, repositoryInfo);
         }
         return toResponse(repositoryInfo);
+    }
+
+    private void ensureSelectedBranchEnvironments(App app, RepositoryInfo repositoryInfo) {
+        repositoryInfo.getBranches().stream()
+                .filter(RepositoryBranch::isSelected)
+                .forEach(branch -> environmentProvisioningService.ensureBranchEnvironment(
+                        app,
+                        repositoryInfo,
+                        branch.getBranchName(),
+                        branch.isDefaultBranch()
+                ));
     }
 
     @Transactional(readOnly = true)
