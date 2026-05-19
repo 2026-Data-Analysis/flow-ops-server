@@ -13,7 +13,6 @@ public record CreateTestGenerationRequest(
         Long appId,
 
         @Schema(description = "생성 기준 환경 ID", example = "3")
-        @NotNull(message = "환경 ID는 필수입니다.")
         Long environmentId,
 
         @Schema(description = "생성 요청자", example = "qa.lead@flowops.dev")

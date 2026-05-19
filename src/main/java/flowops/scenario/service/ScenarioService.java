@@ -12,8 +12,6 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
-import flowops.environment.domain.entity.Environment;
-import flowops.environment.service.EnvironmentService;
 import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
@@ -62,7 +60,6 @@ public class ScenarioService {
     private final ApiEndpointService apiEndpointService;
     private final ApiEndpointRepository apiEndpointRepository;
     private final ApiInventoryRepository apiInventoryRepository;
-    private final EnvironmentService environmentService;
     private final AiClient aiClient;
     private final ExternalServiceProperties externalServiceProperties;
     private final ObjectMapper objectMapper;
@@ -70,23 +67,18 @@ public class ScenarioService {
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
-        log.info("Creating scenario. appId={}, environmentId={}, name={}, type={}, source={}, stepCount={}, stepApiIds={}",
+        log.info("Creating scenario. appId={}, name={}, type={}, source={}, stepCount={}, stepApiIds={}",
                 request.appId(),
-                request.environmentId(),
                 request.name(),
                 request.type(),
                 request.source(),
                 request.steps() == null ? 0 : request.steps().size(),
                 request.steps() == null ? List.of() : request.steps().stream().map(ScenarioStepRequest::apiId).toList());
         App app = appService.getApp(request.appId());
-        Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
-        if (environment != null && !environment.getApp().getId().equals(app.getId())) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario environment does not belong to the requested app.");
-        }
         try {
             Scenario scenario = scenarioRepository.save(Scenario.builder()
                     .app(app)
-                    .environment(environment)
+                    .environment(null)
                     .name(request.name())
                     .description(request.description())
                     .type(request.type())
@@ -94,16 +86,14 @@ public class ScenarioService {
                     .source(request.source())
                     .build());
             List<ScenarioStepResponse> steps = replaceSteps(scenario, request.steps());
-            log.info("Scenario created. scenarioId={}, appId={}, environmentId={}, stepCount={}",
+            log.info("Scenario created. scenarioId={}, appId={}, stepCount={}",
                     scenario.getId(),
                     app.getId(),
-                    environment == null ? null : environment.getId(),
                     steps.size());
             return ScenarioDetailResponse.of(scenario, steps);
         } catch (RuntimeException exception) {
-            log.warn("Scenario creation failed. appId={}, environmentId={}, name={}, stepCount={}, errorType={}, error={}",
+            log.warn("Scenario creation failed. appId={}, name={}, stepCount={}, errorType={}, error={}",
                     request.appId(),
-                    request.environmentId(),
                     request.name(),
                     request.steps() == null ? 0 : request.steps().size(),
                     rootCause(exception).getClass().getName(),
@@ -115,14 +105,7 @@ public class ScenarioService {
     @Transactional(readOnly = true)
     public List<ScenarioSummaryResponse> listByApp(Long appId, Long environmentId, Long repositoryId, String branchName) {
         appService.getApp(appId);
-        List<Scenario> scenarios = environmentId == null
-                ? scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId)
-                : scenarioRepository.findByAppIdAndEnvironmentIdOrderByUpdatedAtDesc(appId, environmentId);
-        if (environmentId == null && (repositoryId != null || (branchName != null && !branchName.isBlank()))) {
-            scenarios = scenarios.stream()
-                    .filter(scenario -> matchesEnvironment(scenario, repositoryId, branchName))
-                    .toList();
-        }
+        List<Scenario> scenarios = scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId);
         return scenarios.stream()
                 .map(scenario -> ScenarioSummaryResponse.from(
                         scenario,
@@ -188,7 +171,6 @@ public class ScenarioService {
         }
 
         App app = appService.getApp(request.appId());
-        Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
         List<ApiInventory> inventories = scenarioInventories(app.getId(), request.apiIds());
         List<ApiEndpoint> endpoints = inventories.isEmpty() ? scenarioEndpoints(app.getId(), request.apiIds()) : List.of();
         List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
@@ -204,9 +186,8 @@ public class ScenarioService {
                 aiEndpoints.size(),
                 aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::endpoint_id).toList());
 
-        log.info("Calling AI scenario generator. appId={}, environmentId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
+        log.info("Calling AI scenario generator. appId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
                 app.getId(),
-                environment == null ? null : environment.getId(),
                 projectId,
                 scenarioMode(request),
                 aiEndpoints.size(),
@@ -224,9 +205,8 @@ public class ScenarioService {
         ));
 
         if (response == null || !response.success() || response.data() == null || response.data().scenarios() == null) {
-            log.warn("AI scenario generator returned no scenarios. appId={}, environmentId={}, success={}, errorCode={}, errorMessage={}, traceId={}",
+            log.warn("AI scenario generator returned no scenarios. appId={}, success={}, errorCode={}, errorMessage={}, traceId={}",
                     app.getId(),
-                    environment == null ? null : environment.getId(),
                     response == null ? null : response.success(),
                     response == null ? null : response.error_code(),
                     response == null ? null : response.error_message(),
@@ -526,7 +506,6 @@ public class ScenarioService {
         List<ScenarioStepResponse> responses = new ArrayList<>();
         for (ScenarioStepRequest step : steps) {
             ApiInventory apiInventory = apiInventoryRepository.findById(step.apiId()).orElse(null);
-            validateInventoryEnvironment(apiInventory, scenario.getEnvironment());
             ApiEndpoint apiEndpoint = apiInventory == null
                     ? apiEndpointService.getApiEndpoint(step.apiId())
                     : endpointForInventory(scenario.getApp(), apiInventory);
@@ -585,33 +564,6 @@ public class ScenarioService {
                 });
     }
 
-    private boolean matchesEnvironment(Scenario scenario, Long repositoryId, String branchName) {
-        if (scenario.getEnvironment() == null) {
-            return false;
-        }
-        boolean repositoryMatches = repositoryId == null
-                || (scenario.getEnvironment().getRepositoryInfo() != null
-                && scenario.getEnvironment().getRepositoryInfo().getId().equals(repositoryId));
-        boolean branchMatches = branchName == null || branchName.isBlank()
-                || branchName.equals(scenario.getEnvironment().getBranchName());
-        return repositoryMatches && branchMatches;
-    }
-
-    private void validateInventoryEnvironment(ApiInventory apiInventory, Environment environment) {
-        if (apiInventory == null || environment == null) {
-            return;
-        }
-        boolean repositoryMatches = environment.getRepositoryInfo() == null
-                || (apiInventory.getRepositoryInfo() != null
-                && apiInventory.getRepositoryInfo().getId().equals(environment.getRepositoryInfo().getId()));
-        boolean branchMatches = environment.getBranchName() == null
-                || environment.getBranchName().isBlank()
-                || environment.getBranchName().equals(apiInventory.getBranchName());
-        if (!repositoryMatches || !branchMatches) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario step API inventory does not belong to the scenario environment.");
-        }
-    }
-
     private Throwable rootCause(Throwable throwable) {
         Throwable current = throwable;
         while (current.getCause() != null) {
@@ -628,3 +580,4 @@ public class ScenarioService {
         return compacted.length() > 2000 ? compacted.substring(0, 2000) + "..." : compacted;
     }
 }
+

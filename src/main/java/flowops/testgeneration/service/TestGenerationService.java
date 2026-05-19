@@ -6,12 +6,8 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
-import flowops.environment.domain.entity.Environment;
-import flowops.environment.service.EnvironmentService;
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
-import flowops.global.exception.ApiException;
-import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiGeneratedDraftCommand;
 import flowops.integration.ai.AiTestGenerationGateway;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
@@ -59,7 +55,6 @@ public class TestGenerationService {
     private final TestGenerationApiSelectionRepository selectionRepository;
     private final GeneratedTestCaseDraftRepository draftRepository;
     private final AppService appService;
-    private final EnvironmentService environmentService;
     private final ApiEndpointService apiEndpointService;
     private final ApiInventoryRepository apiInventoryRepository;
     private final AiTestGenerationGateway aiTestGenerationGateway;
@@ -68,13 +63,9 @@ public class TestGenerationService {
     @Transactional
     public TestGenerationDetailResponse requestGeneration(CreateTestGenerationRequest request) {
         App app = appService.getApp(request.appId());
-        Environment environment = request.environmentId() == null ? null : environmentService.getEnvironment(request.environmentId());
-        if (environment != null && !environment.getApp().getId().equals(app.getId())) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "테스트 생성 환경이 요청한 앱에 속하지 않습니다.");
-        }
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
                 .app(app)
-                .environment(environment)
+                .environment(null)
                 .status(TestGenerationStatus.REQUESTED)
                 .requestedBy(request.requestedBy())
                 .contextSummary(request.contextSummary())
@@ -89,7 +80,6 @@ public class TestGenerationService {
         List<TestGenerationApiSelection> selections = request.selectedApiIds().stream()
                 .map(apiId -> {
                     ApiInventory apiInventory = apiInventoryRepository.findById(apiId).orElse(null);
-                    validateInventoryEnvironment(apiInventory, environment);
                     ApiEndpoint apiEndpoint = apiInventory == null
                             ? apiEndpointService.getApiEndpoint(apiId)
                             : endpointForInventory(app, apiInventory);
@@ -183,7 +173,7 @@ public class TestGenerationService {
     ) {
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
                 .app(execution.getApp())
-                .environment(execution.getEnvironment())
+                .environment(null)
                 .status(TestGenerationStatus.COMPLETED)
                 .requestedBy(requestedBy)
                 .contextSummary(buildFailureContextSummary(execution, failedLog))
@@ -254,7 +244,6 @@ public class TestGenerationService {
         List<GeneratedTestCaseDraft> drafts = new ArrayList<>();
         for (AiGeneratedDraftCommand command : commands) {
             ApiInventory apiInventory = apiInventoryRepository.findById(command.apiId()).orElse(null);
-            validateInventoryEnvironment(apiInventory, generation.getEnvironment());
             ApiEndpoint apiEndpoint = apiInventory == null
                     ? apiEndpointService.getApiEndpoint(command.apiId())
                     : endpointForInventory(generation.getApp(), apiInventory);
@@ -298,7 +287,7 @@ public class TestGenerationService {
 
     private TestLevel resolveTestLevel(String requestedTestLevel, TestGeneration generation) {
         if (requestedTestLevel == null || requestedTestLevel.isBlank()) {
-            return generation.getEnvironment() == null ? TestLevel.REGRESSION : generation.getEnvironment().getDefaultTestLevel();
+            return TestLevel.REGRESSION;
         }
         try {
             return TestLevel.valueOf(requestedTestLevel.trim());
@@ -356,21 +345,6 @@ public class TestGenerationService {
 
     private ApiEndpoint endpointForInventory(App app, ApiInventory apiInventory) {
         return apiEndpointService.findOrCreateFromInventory(app, apiInventory);
-    }
-
-    private void validateInventoryEnvironment(ApiInventory apiInventory, Environment environment) {
-        if (apiInventory == null || environment == null) {
-            return;
-        }
-        boolean repositoryMatches = environment.getRepositoryInfo() == null
-                || (apiInventory.getRepositoryInfo() != null
-                && apiInventory.getRepositoryInfo().getId().equals(environment.getRepositoryInfo().getId()));
-        boolean branchMatches = environment.getBranchName() == null
-                || environment.getBranchName().isBlank()
-                || environment.getBranchName().equals(apiInventory.getBranchName());
-        if (!repositoryMatches || !branchMatches) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "선택한 API 인벤토리가 테스트 생성 환경에 속하지 않습니다.");
-        }
     }
 
     private GeneratedTestCaseDraft createFailureDraft(TestGeneration generation, ExecutionStepLog failedLog, boolean duplicate) {
@@ -495,3 +469,4 @@ public class TestGenerationService {
         return value == null ? "" : value;
     }
 }
+
