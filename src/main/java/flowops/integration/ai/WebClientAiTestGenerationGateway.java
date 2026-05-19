@@ -8,6 +8,7 @@ import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
+import flowops.app.domain.entity.App;
 import flowops.environment.domain.entity.Environment;
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
@@ -72,7 +73,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 apiIds == null ? 0 : apiIds.size());
         Map<String, Long> responseApiIdToSourceApiId = new LinkedHashMap<>();
         List<ApiSelection> selections = apiIds.stream()
-                .map(this::resolveSelection)
+                .map(apiId -> resolveSelection(apiId, generation.getApp()))
                 .toList();
         List<TestCaseApiPayload> apis = selections.stream()
                 .map(selection -> {
@@ -165,16 +166,13 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         return commands;
     }
 
-    private ApiSelection resolveSelection(Long apiId) {
+    private ApiSelection resolveSelection(Long apiId, App app) {
         ApiInventory inventory = apiInventoryRepository.findById(apiId).orElse(null);
         if (inventory == null) {
             ApiEndpoint endpoint = apiEndpointService.getApiEndpoint(apiId);
             return new ApiSelection(apiId, endpoint, null);
         }
-        ApiEndpoint endpoint = apiEndpointService.findFirstByMethodAndPath(
-                ApiMethod.valueOf(inventory.getMethod().name()),
-                inventory.getEndpointPath()
-        );
+        ApiEndpoint endpoint = apiEndpointService.findOrCreateFromInventory(app, inventory);
         return new ApiSelection(apiId, endpoint, inventory);
     }
 

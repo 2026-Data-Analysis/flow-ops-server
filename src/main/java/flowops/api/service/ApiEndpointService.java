@@ -5,6 +5,8 @@ import flowops.api.domain.entity.ApiMethod;
 import flowops.api.dto.response.ApiEndpointDetailResponse;
 import flowops.api.dto.response.ApiEndpointListItemResponse;
 import flowops.api.repository.ApiEndpointRepository;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.app.domain.entity.App;
 import flowops.coverage.service.CoverageService;
 import flowops.execution.repository.ExecutionRepository;
 import flowops.global.exception.ApiException;
@@ -70,11 +72,31 @@ public class ApiEndpointService {
     @Transactional(readOnly = true)
     public ApiEndpoint getApiEndpoint(Long apiId) {
         return apiEndpointRepository.findById(apiId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 엔드포인트를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 엔드포인트를 찾을 수 없습니다. apiId=" + apiId));
     }
+
     @Transactional(readOnly = true)
     public ApiEndpoint findFirstByMethodAndPath(ApiMethod method, String path) {
         return apiEndpointRepository.findFirstByMethodAndPath(method, path)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 엔드포인트를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        "API 엔드포인트를 찾을 수 없습니다. method=%s, path=%s".formatted(method, path)
+                ));
+    }
+
+    @Transactional
+    public ApiEndpoint findOrCreateFromInventory(App app, ApiInventory inventory) {
+        ApiMethod method = ApiMethod.valueOf(inventory.getMethod().name());
+        return apiEndpointRepository.findFirstByAppIdAndMethodAndPath(app.getId(), method, inventory.getEndpointPath())
+                .orElseGet(() -> apiEndpointRepository.save(ApiEndpoint.builder()
+                        .app(app)
+                        .method(method)
+                        .path(inventory.getEndpointPath())
+                        .domainTag(inventory.getDomainTag())
+                        .controllerName(inventory.getOperationId())
+                        .requestSchema(inventory.getRequestSchema())
+                        .responseSchema(inventory.getResponseSchema())
+                        .deprecated(false)
+                        .build()));
     }
 }

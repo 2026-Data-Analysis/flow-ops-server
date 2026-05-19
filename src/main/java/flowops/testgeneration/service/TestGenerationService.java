@@ -1,7 +1,6 @@
 package flowops.testgeneration.service;
 
 import flowops.api.domain.entity.ApiEndpoint;
-import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
@@ -42,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -52,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TestGenerationService {
 
     private final TestGenerationRepository testGenerationRepository;
@@ -89,7 +90,9 @@ public class TestGenerationService {
                 .map(apiId -> {
                     ApiInventory apiInventory = apiInventoryRepository.findById(apiId).orElse(null);
                     validateInventoryEnvironment(apiInventory, environment);
-                    ApiEndpoint apiEndpoint = apiInventory == null ? apiEndpointService.getApiEndpoint(apiId) : endpointForInventory(apiInventory);
+                    ApiEndpoint apiEndpoint = apiInventory == null
+                            ? apiEndpointService.getApiEndpoint(apiId)
+                            : endpointForInventory(app, apiInventory);
                     return TestGenerationApiSelection.builder()
                             .generation(generation)
                             .apiEndpoint(apiEndpoint)
@@ -237,6 +240,12 @@ public class TestGenerationService {
                             : generation.getCurrentCoverage().add(BigDecimal.valueOf(newCount * 5.0)).min(BigDecimal.valueOf(100.0))
             );
         } catch (Exception exception) {
+            log.warn("Failed to generate AI test case drafts. generationId={}, apiIds={}, errorType={}, error={}",
+                    generationId,
+                    apiIds,
+                    exception.getClass().getSimpleName(),
+                    exception.getMessage(),
+                    exception);
             generation.markFailed();
         }
     }
@@ -244,12 +253,11 @@ public class TestGenerationService {
     private List<GeneratedTestCaseDraft> createDraftsFromCommands(TestGeneration generation, List<AiGeneratedDraftCommand> commands) {
         List<GeneratedTestCaseDraft> drafts = new ArrayList<>();
         for (AiGeneratedDraftCommand command : commands) {
-            ApiEndpoint apiEndpoint = apiEndpointService.getApiEndpoint(command.apiId());
             ApiInventory apiInventory = apiInventoryRepository.findById(command.apiId()).orElse(null);
             validateInventoryEnvironment(apiInventory, generation.getEnvironment());
-            if (apiInventory != null) {
-                apiEndpoint = endpointForInventory(apiInventory);
-            }
+            ApiEndpoint apiEndpoint = apiInventory == null
+                    ? apiEndpointService.getApiEndpoint(command.apiId())
+                    : endpointForInventory(generation.getApp(), apiInventory);
             drafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
                     .generation(generation)
                     .apiEndpoint(apiEndpoint)
@@ -346,9 +354,8 @@ public class TestGenerationService {
         throw new IllegalStateException("실패 로그가 API 엔드포인트와 연결되어 있지 않습니다.");
     }
 
-    private ApiEndpoint endpointForInventory(ApiInventory apiInventory) {
-        ApiMethod method = ApiMethod.valueOf(apiInventory.getMethod().name());
-        return apiEndpointService.findFirstByMethodAndPath(method, apiInventory.getEndpointPath());
+    private ApiEndpoint endpointForInventory(App app, ApiInventory apiInventory) {
+        return apiEndpointService.findOrCreateFromInventory(app, apiInventory);
     }
 
     private void validateInventoryEnvironment(ApiInventory apiInventory, Environment environment) {
