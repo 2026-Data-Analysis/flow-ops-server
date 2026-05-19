@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @Component
 @Slf4j
@@ -101,12 +102,15 @@ public class AiWebClient implements AiClient {
                     .bodyValue(request)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.bodyToMono(String.class)
-                            .defaultIfEmpty("AI server request failed.")
-                            .map(body -> new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, body)))
+                            .defaultIfEmpty("")
+                            .map(body -> new ApiException(
+                                    ErrorCode.EXTERNAL_SERVICE_ERROR,
+                                    aiErrorMessage(path, clientResponse.statusCode(), body)
+                            )))
                     .bodyToMono(responseType)
                     .timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()))
                     .onErrorMap(ex -> ex instanceof ApiException ? ex
-                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI server request failed."))
+                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, aiTransportErrorMessage(path, ex), ex))
                     .block();
             log.info("AI request completed. path={}, responseType={}, durationMs={}",
                     path,
@@ -114,12 +118,54 @@ public class AiWebClient implements AiClient {
                     System.currentTimeMillis() - startedAt);
             return response;
         } catch (RuntimeException exception) {
-            log.warn("AI request failed. path={}, responseType={}, durationMs={}, error={}",
+            log.warn("AI request failed. path={}, responseType={}, baseUrl={}, readTimeoutMillis={}, durationMs={}, errorType={}, error={}",
                     path,
                     responseType.getSimpleName(),
+                    properties.ai().baseUrl(),
+                    properties.ai().readTimeoutMillis(),
                     System.currentTimeMillis() - startedAt,
+                    rootCause(exception).getClass().getName(),
                     exception.getMessage());
+            if (exception instanceof WebClientResponseException responseException) {
+                log.warn("AI response error body. path={}, status={}, body={}",
+                        path,
+                        responseException.getStatusCode().value(),
+                        responseException.getResponseBodyAsString());
+            }
             throw exception;
         }
+    }
+
+    private String aiErrorMessage(String path, HttpStatusCode statusCode, String body) {
+        return "AI server request failed. path=%s, status=%s, body=%s"
+                .formatted(path, statusCode.value(), compact(body));
+    }
+
+    private String aiTransportErrorMessage(String path, Throwable throwable) {
+        Throwable rootCause = rootCause(throwable);
+        return "AI server request failed. path=%s, baseUrl=%s, readTimeoutMillis=%d, errorType=%s, error=%s"
+                .formatted(
+                        path,
+                        properties.ai().baseUrl(),
+                        properties.ai().readTimeoutMillis(),
+                        rootCause.getClass().getSimpleName(),
+                        compact(rootCause.getMessage())
+                );
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private String compact(String value) {
+        if (value == null || value.isBlank()) {
+            return "<empty>";
+        }
+        String compacted = value.replaceAll("\\s+", " ").trim();
+        return compacted.length() > 2000 ? compacted.substring(0, 2000) + "..." : compacted;
     }
 }

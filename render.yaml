@@ -52,3 +52,7 @@ services:
         sync: false
       - key: AI_SERVER_API_KEY
         sync: false
+      - key: AI_CONNECT_TIMEOUT_MILLIS
+        value: "10000"
+      - key: AI_READ_TIMEOUT_MILLIS
+        value: "60000"

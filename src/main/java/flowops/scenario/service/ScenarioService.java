@@ -167,6 +167,13 @@ public class ScenarioService {
                 ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
                 : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
         String projectId = projectId(app, inventories);
+        log.info("Scenario recommendation payload prepared. appId={}, requestedApiIdCount={}, inventoryCount={}, endpointFallbackCount={}, aiEndpointCount={}, firstEndpointIds={}",
+                app.getId(),
+                request.apiIds() == null ? 0 : request.apiIds().size(),
+                inventories.size(),
+                endpoints.size(),
+                aiEndpoints.size(),
+                aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::endpoint_id).toList());
 
         log.info("Calling AI scenario generator. appId={}, environmentId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
                 app.getId(),
@@ -219,7 +226,9 @@ public class ScenarioService {
 
     private List<ApiInventory> scenarioInventories(Long appId, List<Long> apiIds) {
         if (apiIds == null || apiIds.isEmpty()) {
-            return apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(appId);
+            List<ApiInventory> inventories = apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(appId);
+            log.info("Resolved scenario API inventory by app. appId={}, inventoryCount={}", appId, inventories.size());
+            return inventories;
         }
         List<ApiInventory> inventories = apiIds.stream()
                 .map(apiInventoryRepository::findById)
@@ -229,17 +238,36 @@ public class ScenarioService {
                         && inventory.getRepositoryInfo().getApp() != null
                         && inventory.getRepositoryInfo().getApp().getId().equals(appId))
                 .toList();
+        log.info("Resolved scenario API inventory by requested ids. appId={}, requestedApiIdCount={}, matchedInventoryCount={}, firstRequestedApiIds={}, firstMatchedInventoryIds={}",
+                appId,
+                apiIds.size(),
+                inventories.size(),
+                apiIds.stream().limit(10).toList(),
+                inventories.stream().limit(10).map(ApiInventory::getId).toList());
+        if (inventories.size() != apiIds.size()) {
+            log.warn("Some requested apiIds were not resolved as ApiInventory ids for app. appId={}, requestedApiIdCount={}, matchedInventoryCount={}",
+                    appId,
+                    apiIds.size(),
+                    inventories.size());
+        }
         return inventories.size() == apiIds.size() ? inventories : List.of();
     }
 
     private List<ApiEndpoint> scenarioEndpoints(Long appId, List<Long> apiIds) {
         if (apiIds == null || apiIds.isEmpty()) {
-            return apiEndpointRepository.findByAppId(appId);
+            List<ApiEndpoint> endpoints = apiEndpointRepository.findByAppId(appId);
+            log.info("Resolved scenario API endpoints by app fallback. appId={}, endpointCount={}", appId, endpoints.size());
+            return endpoints;
         }
-        return apiIds.stream()
+        List<ApiEndpoint> endpoints = apiIds.stream()
                 .map(apiEndpointService::getApiEndpoint)
                 .filter(endpoint -> endpoint.getApp().getId().equals(appId))
                 .toList();
+        log.info("Resolved scenario API endpoints by requested ids fallback. appId={}, requestedApiIdCount={}, endpointCount={}",
+                appId,
+                apiIds.size(),
+                endpoints.size());
+        return endpoints;
     }
 
     private String projectId(App app, List<ApiInventory> inventories) {
