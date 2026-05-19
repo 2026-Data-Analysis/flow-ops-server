@@ -28,6 +28,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 
 @Component
 @Slf4j
@@ -97,7 +98,7 @@ public class AiWebClient implements AiClient {
                 properties.ai().baseUrl(),
                 properties.ai().mockEnabled());
         try {
-            R response = aiWebClient.post()
+            Mono<R> responseMono = aiWebClient.post()
                     .uri(path)
                     .bodyValue(request)
                     .retrieve()
@@ -108,10 +109,12 @@ public class AiWebClient implements AiClient {
                                     aiErrorMessage(path, clientResponse.statusCode(), body)
                             )))
                     .bodyToMono(responseType)
-                    .timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()))
                     .onErrorMap(ex -> ex instanceof ApiException ? ex
-                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, aiTransportErrorMessage(path, ex), ex))
-                    .block();
+                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, aiTransportErrorMessage(path, ex), ex));
+            if (properties.ai().readTimeoutMillis() > 0) {
+                responseMono = responseMono.timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()));
+            }
+            R response = responseMono.block();
             log.info("AI request completed. path={}, responseType={}, durationMs={}",
                     path,
                     responseType.getSimpleName(),

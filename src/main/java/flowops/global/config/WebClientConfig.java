@@ -47,10 +47,12 @@ public class WebClientConfig {
     public WebClient aiApiWebClient(WebClient.Builder builder, ExternalServiceProperties properties) {
         ExternalServiceProperties.Ai ai = properties.ai();
         HttpClient httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, ai.connectTimeoutMillis())
-                .doOnConnected(connection -> connection.addHandlerLast(
-                        new ReadTimeoutHandler(ai.readTimeoutMillis(), TimeUnit.MILLISECONDS)
-                ));
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, ai.connectTimeoutMillis());
+        if (ai.readTimeoutMillis() > 0) {
+            httpClient = httpClient.doOnConnected(connection -> connection.addHandlerLast(
+                    new ReadTimeoutHandler(ai.readTimeoutMillis(), TimeUnit.MILLISECONDS)
+            ));
+        }
 
         return builder
                 .baseUrl(ai.baseUrl())
