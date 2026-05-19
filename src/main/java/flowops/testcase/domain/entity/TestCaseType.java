@@ -3,6 +3,8 @@ package flowops.testcase.domain.entity;
 public enum TestCaseType {
     HAPPY_PATH,
     VALIDATION,
+    FAILURE_HANDLING,
     EDGE_CASE,
-    FAILURE_HANDLING
+    AUTHORIZATION,
+    PERFORMANCE
 }

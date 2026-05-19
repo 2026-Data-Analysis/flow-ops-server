@@ -67,7 +67,7 @@ public class AiWebClient implements AiClient {
 
     @Override
     public TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request) {
-        return post("/agents/test-cases/generate", request, TestCaseGeneratorResponse.class);
+        return post("/api/v1/agents/testcase/generate", request, TestCaseGeneratorResponse.class);
     }
 
     @Override

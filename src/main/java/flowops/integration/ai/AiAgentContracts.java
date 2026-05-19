@@ -13,15 +13,15 @@ public final class AiAgentContracts {
 
     @Schema(description = "AI 연동 공통 프로젝트 정보")
     public record ProjectPayload(
-            Long projectId,
-            Long appId,
+            String projectId,
+            String appId,
             String appName
     ) {
     }
 
     @Schema(description = "AI 연동 공통 실행 환경 정보")
     public record EnvironmentPayload(
-            Long environmentId,
+            String environmentId,
             String name,
             String baseUrl,
             String defaultTestLevel
@@ -55,7 +55,7 @@ public final class AiAgentContracts {
 
     @Schema(description = "테스트 케이스 생성 요청 컨텍스트")
     public record TestGenerationContext(
-            Long generationId,
+            String generationId,
             String mode,
             String testLevel,
             Double currentCoverage,
@@ -66,14 +66,27 @@ public final class AiAgentContracts {
 
     @Schema(description = "기존 테스트 케이스 요약 정보")
     public record ExistingTestCasePayload(
-            Long testCaseId,
-            Long apiId,
+            String testCaseId,
+            String apiId,
             String name,
             String type,
             String testLevel,
-            String requestSpec,
-            String expectedSpec,
-            String assertionSpec
+            JsonNode requestSpec,
+            JsonNode expectedSpec,
+            JsonNode assertionSpec
+    ) {
+    }
+
+    @Schema(description = "Test case generator API payload")
+    public record TestCaseApiPayload(
+            String apiId,
+            String method,
+            String path,
+            String domainTag,
+            JsonNode requestSchema,
+            JsonNode responseSchema,
+            Boolean authRequired,
+            Boolean deprecated
     ) {
     }
 
@@ -99,7 +112,7 @@ public final class AiAgentContracts {
             EnvironmentPayload environment,
             MetadataPayload metadata,
             TestGenerationContext generationContext,
-            List<ApiPayload> apis,
+            List<TestCaseApiPayload> apis,
             List<ExistingTestCasePayload> existingTestCases,
             FailureContextPayload failureContext
     ) {
@@ -107,24 +120,28 @@ public final class AiAgentContracts {
 
     @Schema(description = "테스트 케이스 생성 AI 에이전트가 반환한 초안")
     public record TestCaseDraftPayload(
-            Long apiId,
+            String apiId,
             @JsonProperty("endpoint_id")
             String endpoint_id,
             String title,
             String description,
             String type,
+            @JsonProperty("test_case_type")
+            String test_case_type,
             String userRole,
             String stateCondition,
             String dataVariant,
-            String requestSpec,
-            String expectedSpec,
-            String assertionSpec,
+            JsonNode requestSpec,
+            JsonNode expectedSpec,
+            JsonNode assertionSpec,
             boolean duplicate
     ) {
     }
 
     @Schema(description = "테스트 케이스 생성 AI 에이전트 응답")
     public record TestCaseGeneratorResponse(
+            String requestId,
+            String generationId,
             List<TestCaseDraftPayload> drafts
     ) {
     }

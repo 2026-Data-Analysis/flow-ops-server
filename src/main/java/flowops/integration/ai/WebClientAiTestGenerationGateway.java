@@ -13,12 +13,12 @@ import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
-import flowops.integration.ai.AiAgentContracts.ApiPayload;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.ExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.FailureContextPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
+import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
@@ -70,15 +70,16 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 generation.getId(),
                 generation.getApp() == null ? null : generation.getApp().getId(),
                 apiIds == null ? 0 : apiIds.size());
-        Map<String, Long> endpointIdToApiId = new LinkedHashMap<>();
+        Map<String, Long> responseApiIdToSourceApiId = new LinkedHashMap<>();
         List<ApiSelection> selections = apiIds.stream()
                 .map(this::resolveSelection)
                 .toList();
-        List<ApiPayload> apis = selections.stream()
+        List<TestCaseApiPayload> apis = selections.stream()
                 .map(selection -> {
-                    String endpointId = endpointId(selection.endpoint());
-                    endpointIdToApiId.put(endpointId, selection.sourceApiId());
-                    return toApiPayload(endpointId, selection.endpoint(), selection.inventory());
+                    String apiId = String.valueOf(selection.sourceApiId());
+                    responseApiIdToSourceApiId.put(apiId, selection.sourceApiId());
+                    responseApiIdToSourceApiId.put(endpointId(selection.endpoint()), selection.sourceApiId());
+                    return toTestCaseApiPayload(apiId, selection.endpoint(), selection.inventory());
                 })
                 .toList();
 
@@ -86,11 +87,13 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 AGENT,
                 UUID.randomUUID().toString(),
                 generation.getRequestedBy(),
-                new ProjectPayload(null, generation.getApp().getId(), generation.getApp().getName()),
+                new ProjectPayload(resolveProjectId(selections, generation.getApp().getId()),
+                        String.valueOf(generation.getApp().getId()),
+                        generation.getApp().getName()),
                 toEnvironmentPayload(generation.getEnvironment()),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
-                        generation.getId(),
+                        String.valueOf(generation.getId()),
                         "SELECTED_APIS",
                         resolveTestLevel(generation),
                         toDouble(generation.getCurrentCoverage()),
@@ -102,7 +105,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 null
         ));
 
-        List<AiGeneratedDraftCommand> commands = toCommands(response, endpointIdToApiId);
+        List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
         log.info("AI test case generator completed. generationId={}, draftCount={}",
                 generation.getId(),
                 commands.size());
@@ -116,26 +119,32 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 execution.getId(),
                 failedLog.getId());
         ApiEndpoint endpoint = resolveEndpoint(failedLog);
+        String apiId = String.valueOf(endpoint.getId());
         String endpointId = endpointId(endpoint);
-        Map<String, Long> endpointIdToApiId = Map.of(endpointId, endpoint.getId());
+        Map<String, Long> responseApiIdToSourceApiId = Map.of(
+                apiId, endpoint.getId(),
+                endpointId, endpoint.getId()
+        );
         ApiInventory inventory = failedLog.getTestCase() == null ? null : failedLog.getTestCase().getApiInventory();
 
         TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(new TestCaseGeneratorRequest(
                 AGENT,
                 UUID.randomUUID().toString(),
                 generation.getRequestedBy(),
-                new ProjectPayload(null, generation.getApp().getId(), generation.getApp().getName()),
+                new ProjectPayload(resolveProjectId(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)), generation.getApp().getId()),
+                        String.valueOf(generation.getApp().getId()),
+                        generation.getApp().getName()),
                 toEnvironmentPayload(generation.getEnvironment()),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
-                        generation.getId(),
+                        String.valueOf(generation.getId()),
                         "FROM_FAILURE",
                         resolveTestLevel(generation),
                         toDouble(generation.getCurrentCoverage()),
                         null,
                         generation.getContextSummary()
                 ),
-                List.of(toApiPayload(endpointId, endpoint, inventory)),
+                List.of(toTestCaseApiPayload(apiId, endpoint, inventory)),
                 existingTestCases(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory))),
                 new FailureContextPayload(
                         execution.getId(),
@@ -149,7 +158,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 )
         ));
 
-        List<AiGeneratedDraftCommand> commands = toCommands(response, endpointIdToApiId);
+        List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
         log.info("AI failure test generator completed. generationId={}, draftCount={}",
                 generation.getId(),
                 commands.size());
@@ -169,17 +178,16 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         return new ApiSelection(apiId, endpoint, inventory);
     }
 
-    private ApiPayload toApiPayload(String endpointId, ApiEndpoint endpoint, ApiInventory inventory) {
-        return new ApiPayload(
-                endpointId,
+    private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
+        return new TestCaseApiPayload(
+                apiId,
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
                 parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema()),
                 parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema()),
                 inventory == null ? null : inventory.isAuthRequired(),
-                endpoint.isDeprecated(),
-                null
+                endpoint.isDeprecated()
         );
     }
 
@@ -199,22 +207,28 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 .distinct()
                 .limit(20)
                 .map(testCase -> new ExistingTestCasePayload(
-                        testCase.getId(),
-                        testCase.getApiEndpoint().getId(),
+                        String.valueOf(testCase.getId()),
+                        String.valueOf(testCase.getApiEndpoint().getId()),
                         testCase.getName(),
                         testCase.getType().name(),
                         testCase.getTestLevel().name(),
-                        testCase.getRequestSpec(),
-                        testCase.getExpectedSpec(),
-                        testCase.getAssertionSpec()
+                        parseJson(testCase.getRequestSpec()),
+                        parseJson(testCase.getExpectedSpec()),
+                        parseJson(testCase.getAssertionSpec())
                 ))
                 .toList();
     }
 
-    private AiGeneratedDraftCommand toCommand(TestCaseDraftPayload draft, Map<String, Long> endpointIdToApiId) {
-        Long apiId = draft.apiId();
+    private AiGeneratedDraftCommand toCommand(TestCaseDraftPayload draft, Map<String, Long> responseApiIdToSourceApiId) {
+        Long apiId = null;
+        if (draft.apiId() != null) {
+            apiId = responseApiIdToSourceApiId.get(draft.apiId());
+            if (apiId == null) {
+                apiId = parseLongOrNull(draft.apiId());
+            }
+        }
         if (apiId == null && draft.endpoint_id() != null) {
-            apiId = endpointIdToApiId.get(draft.endpoint_id());
+            apiId = responseApiIdToSourceApiId.get(draft.endpoint_id());
         }
         if (apiId == null) {
             throw new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI response did not include a resolvable apiId or endpoint_id.");
@@ -227,19 +241,19 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 draft.userRole(),
                 draft.stateCondition(),
                 draft.dataVariant(),
-                draft.requestSpec(),
-                draft.expectedSpec(),
-                draft.assertionSpec(),
+                jsonToStorageText(draft.requestSpec()),
+                jsonToStorageText(draft.expectedSpec()),
+                jsonToStorageText(draft.assertionSpec()),
                 draft.duplicate()
         );
     }
 
-    private List<AiGeneratedDraftCommand> toCommands(TestCaseGeneratorResponse response, Map<String, Long> endpointIdToApiId) {
+    private List<AiGeneratedDraftCommand> toCommands(TestCaseGeneratorResponse response, Map<String, Long> responseApiIdToSourceApiId) {
         if (response == null || response.drafts() == null) {
             return List.of();
         }
         return response.drafts().stream()
-                .map(draft -> toCommand(draft, endpointIdToApiId))
+                .map(draft -> toCommand(draft, responseApiIdToSourceApiId))
                 .toList();
     }
 
@@ -291,7 +305,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
             return null;
         }
         return new EnvironmentPayload(
-                environment.getId(),
+                String.valueOf(environment.getId()),
                 environment.getName(),
                 environment.getBaseUrl(),
                 environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
@@ -303,6 +317,17 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
             return "REGRESSION";
         }
         return generation.getEnvironment().getDefaultTestLevel().name();
+    }
+
+    private String resolveProjectId(List<ApiSelection> selections, Long fallbackProjectId) {
+        return selections.stream()
+                .map(ApiSelection::inventory)
+                .filter(java.util.Objects::nonNull)
+                .map(ApiInventory::getProject)
+                .filter(java.util.Objects::nonNull)
+                .map(project -> String.valueOf(project.getId()))
+                .findFirst()
+                .orElseGet(() -> String.valueOf(fallbackProjectId));
     }
 
     private String endpointId(ApiEndpoint endpoint) {
@@ -317,6 +342,28 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
             return objectMapper.readTree(value);
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(value);
+        }
+    }
+
+    private String jsonToStorageText(JsonNode value) {
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isTextual()) {
+            return value.asText();
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            return value.toString();
+        }
+    }
+
+    private Long parseLongOrNull(String value) {
+        try {
+            return value == null ? null : Long.valueOf(value);
+        } catch (NumberFormatException exception) {
+            return null;
         }
     }
 
