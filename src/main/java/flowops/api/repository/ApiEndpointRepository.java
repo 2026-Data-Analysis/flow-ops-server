@@ -29,5 +29,7 @@ public interface ApiEndpointRepository extends JpaRepository<ApiEndpoint, Long> 
 
     Optional<ApiEndpoint> findFirstByMethodAndPath(ApiMethod method, String path);
 
+    Optional<ApiEndpoint> findFirstByAppIdAndMethodAndPath(Long appId, ApiMethod method, String path);
+
     List<ApiEndpoint> findByAppId(Long appId);
 }
