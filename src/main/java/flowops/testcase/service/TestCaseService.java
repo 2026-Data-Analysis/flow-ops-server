@@ -43,9 +43,12 @@ public class TestCaseService {
     }
 
     private List<TestCaseSummaryResponse> listByInventory(ApiInventory apiInventory) {
-        ApiEndpoint selectedEndpoint = findEndpointForInventory(apiInventory);
-        return testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
-                .stream()
+        List<TestCase> testCases = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId());
+        if (testCases.isEmpty()) {
+            return List.of();
+        }
+        ApiEndpoint selectedEndpoint = testCases.get(0).getApiEndpoint();
+        return testCases.stream()
                 .map(testCase -> TestCaseSummaryResponse.from(testCase, selectedEndpoint))
                 .toList();
     }
@@ -123,10 +126,5 @@ public class TestCaseService {
         } catch (JsonProcessingException exception) {
             throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR, "테스트케이스 버전 스냅샷 생성에 실패했습니다.");
         }
-    }
-
-    private ApiEndpoint findEndpointForInventory(ApiInventory apiInventory) {
-        flowops.api.domain.entity.ApiMethod method = flowops.api.domain.entity.ApiMethod.valueOf(apiInventory.getMethod().name());
-        return apiEndpointService.findFirstByMethodAndPath(method, apiInventory.getEndpointPath());
     }
 }
