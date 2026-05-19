@@ -2,6 +2,7 @@ package flowops.scenario.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
@@ -23,6 +24,7 @@ import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.domain.entity.ScenarioType;
@@ -40,8 +42,10 @@ import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.repository.TestCaseRepository;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -166,6 +170,7 @@ public class ScenarioService {
         List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
                 ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
                 : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
+        Map<String, Long> apiIdByEndpointId = scenarioApiIdByEndpointId(inventories, endpoints);
         String projectId = projectId(app, inventories);
         log.info("Scenario recommendation payload prepared. appId={}, requestedApiIdCount={}, inventoryCount={}, endpointFallbackCount={}, aiEndpointCount={}, firstEndpointIds={}",
                 app.getId(),
@@ -205,22 +210,41 @@ public class ScenarioService {
             return List.of();
         }
 
+        log.info("AI scenario generator raw result. appId={}, traceId={}, success={}, usedEndpointIds={}, scenarioSummaries={}",
+                app.getId(),
+                response.trace_id(),
+                response.success(),
+                response.data().used_endpoint_ids(),
+                scenarioSummaries(response.data().scenarios()));
+
         List<ScenarioRecommendationResponse> recommendations = response.data().scenarios().stream()
                 .filter(scenario -> scenario.name() != null && !scenario.name().isBlank())
-                .map(scenario -> toRecommendation(scenario, request.scenarioType()))
+                .map(scenario -> toRecommendation(scenario, request.scenarioType(), apiIdByEndpointId))
                 .toList();
-        log.info("AI scenario generator completed. appId={}, scenarioCount={}, traceId={}",
+        long unresolvedStepCount = recommendations.stream()
+                .flatMap(recommendation -> recommendation.steps().stream())
+                .filter(step -> step.apiId() == null)
+                .count();
+        log.info("AI scenario generator completed. appId={}, scenarioCount={}, totalStepCount={}, zeroStepScenarioCount={}, traceId={}",
                 app.getId(),
                 recommendations.size(),
+                recommendations.stream().map(ScenarioRecommendationResponse::steps).filter(java.util.Objects::nonNull).mapToInt(List::size).sum(),
+                recommendations.stream().filter(recommendation -> recommendation.steps() == null || recommendation.steps().isEmpty()).count(),
                 response.trace_id());
+        if (unresolvedStepCount > 0) {
+            log.warn("AI scenario generator returned steps with unresolved endpoint ids. appId={}, unresolvedStepCount={}, knownEndpointIds={}",
+                    app.getId(),
+                    unresolvedStepCount,
+                    apiIdByEndpointId.keySet());
+        }
         return recommendations;
     }
 
     private List<ScenarioRecommendationResponse> mockRecommendations() {
         return List.of(
-                new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path."),
-                new ScenarioRecommendationResponse("Validation guard rails", ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures."),
-                new ScenarioRecommendationResponse("Recovery after dependency failure", ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.")
+                new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path.", List.of()),
+                new ScenarioRecommendationResponse("Validation guard rails", ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures.", List.of()),
+                new ScenarioRecommendationResponse("Recovery after dependency failure", ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.", List.of())
         );
     }
 
@@ -363,15 +387,95 @@ public class ScenarioService {
         );
     }
 
-    private ScenarioRecommendationResponse toRecommendation(ScenarioPayload scenario, ScenarioType fallbackType) {
+    private ScenarioRecommendationResponse toRecommendation(
+            ScenarioPayload scenario,
+            ScenarioType fallbackType,
+            Map<String, Long> apiIdByEndpointId
+    ) {
         String reason = scenario.meta() == null || scenario.meta().rationale() == null
                 ? scenario.description()
                 : scenario.meta().rationale();
         return new ScenarioRecommendationResponse(
                 scenario.name(),
                 fallbackType == null ? ScenarioType.HAPPY_PATH : fallbackType,
-                reason
+                reason,
+                scenario.steps() == null ? List.of() : scenario.steps().stream()
+                        .map(step -> toRecommendationStep(step, apiIdByEndpointId))
+                        .toList()
         );
+    }
+
+    private ScenarioRecommendationResponse.Step toRecommendationStep(
+            ScenarioStepPayload step,
+            Map<String, Long> apiIdByEndpointId
+    ) {
+        return new ScenarioRecommendationResponse.Step(
+                step.order(),
+                apiIdByEndpointId.get(step.endpoint_id()),
+                step.endpoint_id(),
+                step.name() == null || step.name().isBlank() ? step.description() : step.name(),
+                requestConfig(step),
+                jsonString(step.chained_variables()),
+                validationRules(step)
+        );
+    }
+
+    private Map<String, Long> scenarioApiIdByEndpointId(List<ApiInventory> inventories, List<ApiEndpoint> endpoints) {
+        Map<String, Long> apiIds = new LinkedHashMap<>();
+        inventories.forEach(inventory -> apiIds.put(
+                endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
+                inventory.getId()
+        ));
+        endpoints.forEach(endpoint -> apiIds.put(
+                endpointId(endpoint.getMethod().name(), endpoint.getPath()),
+                endpoint.getId()
+        ));
+        return apiIds;
+    }
+
+    private List<String> scenarioSummaries(List<ScenarioPayload> scenarios) {
+        return scenarios.stream()
+                .map(scenario -> "%s(stepCount=%d, endpointIds=%s)".formatted(
+                        scenario.name(),
+                        scenario.steps() == null ? 0 : scenario.steps().size(),
+                        scenario.steps() == null ? List.of() : scenario.steps().stream()
+                                .map(ScenarioStepPayload::endpoint_id)
+                                .toList()
+                ))
+                .toList();
+    }
+
+    private String requestConfig(ScenarioStepPayload step) {
+        ObjectNode requestConfig = objectMapper.createObjectNode();
+        if (step.static_payload() != null && !step.static_payload().isNull()) {
+            requestConfig.set("body", step.static_payload());
+        }
+        if (step.static_params() != null && !step.static_params().isNull()) {
+            requestConfig.set("params", step.static_params());
+        }
+        return requestConfig.isEmpty() ? null : jsonString(requestConfig);
+    }
+
+    private String validationRules(ScenarioStepPayload step) {
+        ObjectNode validationRules = objectMapper.createObjectNode();
+        if (step.expected_status_code() != null) {
+            validationRules.put("expectedStatusCode", step.expected_status_code());
+        }
+        if (step.expected_assertions() != null && !step.expected_assertions().isEmpty()) {
+            validationRules.set("assertions", objectMapper.valueToTree(step.expected_assertions()));
+        }
+        return validationRules.isEmpty() ? null : jsonString(validationRules);
+    }
+
+    private String jsonString(JsonNode value) {
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            return value.toString();
+        }
     }
 
     private JsonNode parseJson(String value) {
