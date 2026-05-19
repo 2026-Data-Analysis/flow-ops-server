@@ -108,12 +108,12 @@ public class AiWebClient implements AiClient {
                                     ErrorCode.EXTERNAL_SERVICE_ERROR,
                                     aiErrorMessage(path, clientResponse.statusCode(), body)
                             )))
-                    .bodyToMono(responseType)
-                    .onErrorMap(ex -> ex instanceof ApiException ? ex
-                            : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, aiTransportErrorMessage(path, ex), ex));
+                    .bodyToMono(responseType);
             if (properties.ai().readTimeoutMillis() > 0) {
                 responseMono = responseMono.timeout(Duration.ofMillis(properties.ai().readTimeoutMillis()));
             }
+            responseMono = responseMono.onErrorMap(ex -> ex instanceof ApiException ? ex
+                    : new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, aiTransportErrorMessage(path, ex), ex));
             R response = responseMono.block();
             log.info("AI request completed. path={}, responseType={}, durationMs={}",
                     path,
