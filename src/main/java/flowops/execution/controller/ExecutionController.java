@@ -28,6 +28,15 @@ public class ExecutionController {
 
     private final ExecutionQueryService executionQueryService;
 
+    @GetMapping("/apps/{appId}/executions")
+    @Operation(summary = "앱별 실행 이력 조회", description = "앱 ID로 실행 이력 목록을 조회합니다.")
+    public ApiResponse<PageResponse<ExecutionDetailResponse>> listExecutionsByApp(
+            @PathVariable Long appId,
+            @PageableDefault(size = 100) Pageable pageable
+    ) {
+        return ApiResponse.success(executionQueryService.listExecutionsByApp(appId, pageable));
+    }
+
     @GetMapping("/executions")
     @Operation(summary = "실행 목록 조회", description = "실행 이력 요약 목록을 조회합니다.")
     public ApiResponse<PageResponse<ExecutionSummaryResponse>> listExecutions(

@@ -19,6 +19,7 @@ import flowops.testcase.repository.TestCaseRepository;
 import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,9 +74,29 @@ public class HttpExecutionEngine {
     }
 
     public List<ExecutionStepLog> executeScenario(Execution execution, Long scenarioId) {
-        return scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId).stream()
-                .map(step -> executeScenarioStep(execution, step))
-                .toList();
+        List<ScenarioStep> steps = scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId);
+        Map<String, String> chainedVars = new LinkedHashMap<>();
+        List<ExecutionStepLog> logs = new ArrayList<>();
+        for (ScenarioStep step : steps) {
+            String resolvedConfig = applyChainedVars(
+                    firstText(step.getRequestConfig(),
+                            step.getApiInventory() == null ? null : step.getApiInventory().getRequestSchema(),
+                            step.getApiEndpoint().getRequestSchema()),
+                    chainedVars
+            );
+            ExecutionStepLog log = execute(
+                    execution,
+                    null,
+                    step,
+                    step.getApiEndpoint(),
+                    step.getLabel(),
+                    parseRequestDefinition(resolvedConfig),
+                    parseExpectedDefinition(step.getValidationRules())
+            );
+            logs.add(log);
+            extractVariables(step.getExtractRules(), log.getResponseBody(), chainedVars);
+        }
+        return logs;
     }
 
     public ExecutionStepLog executeScenarioStep(Execution execution, ScenarioStep scenarioStep) {
@@ -246,6 +267,54 @@ public class HttpExecutionEngine {
             return ExpectedDefinition.exact(status.asInt());
         }
         return ExpectedDefinition.success2xx();
+    }
+
+    private void extractVariables(String extractRules, String responseBody, Map<String, String> chainedVars) {
+        if (extractRules == null || extractRules.isBlank()) return;
+        JsonNode rules = parseJson(extractRules);
+        JsonNode response = parseJson(responseBody);
+        if (rules == null || rules.isNull() || rules.isMissingNode() || response == null) return;
+        if (rules.isArray()) {
+            for (JsonNode rule : rules) {
+                String name = rule.path("name").asText(null);
+                String jsonPath = rule.path("jsonPath").asText(null);
+                if (jsonPath == null) jsonPath = rule.path("path").asText(null);
+                if (name == null || jsonPath == null) continue;
+                String value = extractJsonPath(response, jsonPath);
+                if (value != null) chainedVars.put(name, value);
+            }
+        } else if (rules.isObject()) {
+            String name = rules.path("name").asText(null);
+            String jsonPath = rules.path("jsonPath").asText(null);
+            if (jsonPath == null) jsonPath = rules.path("path").asText(null);
+            if (name != null && jsonPath != null) {
+                String value = extractJsonPath(response, jsonPath);
+                if (value != null) chainedVars.put(name, value);
+            }
+        }
+    }
+
+    private String extractJsonPath(JsonNode root, String jsonPath) {
+        if (jsonPath == null || root == null || root.isNull() || root.isMissingNode()) return null;
+        String pointer = jsonPath.trim();
+        if (pointer.startsWith("$")) {
+            pointer = pointer.substring(1).replace('.', '/');
+        }
+        if (!pointer.startsWith("/")) {
+            pointer = "/" + pointer;
+        }
+        JsonNode node = root.at(pointer);
+        if (node.isMissingNode() || node.isNull()) return null;
+        return node.isTextual() ? node.asText() : node.toString();
+    }
+
+    private String applyChainedVars(String template, Map<String, String> vars) {
+        if (template == null || vars.isEmpty()) return template;
+        String result = template;
+        for (Map.Entry<String, String> entry : vars.entrySet()) {
+            result = result.replace("{{" + entry.getKey() + "}}", entry.getValue());
+        }
+        return result;
     }
 
     private JsonNode parseJson(String value) {
