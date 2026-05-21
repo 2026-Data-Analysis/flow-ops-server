@@ -10,6 +10,9 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 public record SaveGeneratedDraftsRequest(
+        @Schema(description = "Application ID. Optional; when provided, it must match the generation's appId.", example = "1")
+        Long appId,
+
         @ArraySchema(schema = @Schema(description = "저장할 생성 초안과 최종 테스트 케이스 입력값"))
         @NotEmpty(message = "저장할 테스트 케이스를 하나 이상 선택해야 합니다.")
         List<@Valid TestCaseDraftSaveRequest> testCases

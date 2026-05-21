@@ -39,6 +39,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
@@ -118,6 +119,8 @@ public class TestGenerationService {
     @Transactional
     public SaveGeneratedDraftsResponse saveDrafts(Long generationId, SaveGeneratedDraftsRequest request) {
         TestGeneration generation = getGeneration(generationId);
+        App generationApp = generation.getApp();
+        validateRequestedApp(generationApp, request.appId());
         List<Long> draftIds = request.testCases().stream()
                 .map(TestCaseDraftSaveRequest::draftId)
                 .toList();
@@ -142,10 +145,11 @@ public class TestGenerationService {
         List<Long> savedTestCaseIds = new ArrayList<>();
         LinkedHashSet<Long> apiIds = new LinkedHashSet<>();
         for (GeneratedTestCaseDraft draft : drafts) {
+            validateDraftApp(generationApp, draft);
             TestCaseDraftSaveRequest saveRequest = saveRequests.get(draft.getId());
             draft.selectForSave();
             TestCase savedTestCase = testCaseRepository.save(TestCase.builder()
-                    .app(generation.getApp())
+                    .app(generationApp)
                     .apiEndpoint(draft.getApiEndpoint())
                     .apiInventory(draft.getApiInventory())
                     .name(saveRequest.name().trim())
@@ -166,6 +170,25 @@ public class TestGenerationService {
             apiIds.add(savedTestCase.getApiEndpoint().getId());
         }
         return new SaveGeneratedDraftsResponse(generationId, savedTestCaseIds.size(), savedTestCaseIds, List.copyOf(apiIds));
+    }
+
+    private void validateRequestedApp(App generationApp, Long requestedAppId) {
+        if (requestedAppId != null && !generationApp.getId().equals(requestedAppId)) {
+            throw new flowops.global.exception.ApiException(
+                    flowops.global.response.ErrorCode.INVALID_INPUT,
+                    "Requested appId does not match the generation appId."
+            );
+        }
+    }
+
+    private void validateDraftApp(App generationApp, GeneratedTestCaseDraft draft) {
+        Long endpointAppId = draft.getApiEndpoint().getApp().getId();
+        if (!generationApp.getId().equals(endpointAppId)) {
+            throw new flowops.global.exception.ApiException(
+                    flowops.global.response.ErrorCode.INVALID_INPUT,
+                    "Draft API endpoint does not belong to the generation app."
+            );
+        }
     }
 
     @Transactional
@@ -252,6 +275,7 @@ public class TestGenerationService {
             ApiEndpoint apiEndpoint = apiInventory == null
                     ? apiEndpointService.getApiEndpoint(command.apiId())
                     : endpointForInventory(generation.getApp(), apiInventory);
+            boolean duplicate = existingTestCaseTitles(apiEndpoint, apiInventory).contains(normalizeTitle(command.title()));
             drafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
                     .generation(generation)
                     .apiEndpoint(apiEndpoint)
@@ -265,12 +289,30 @@ public class TestGenerationService {
                     .requestSpec(command.requestSpec())
                     .expectedSpec(command.expectedSpec())
                     .assertionSpec(command.assertionSpec())
-                    .duplicate(command.duplicate())
+                    .duplicate(duplicate)
                     .selectedForSave(false)
                     .createdAt(LocalDateTime.now())
                     .build()));
         }
         return drafts;
+    }
+
+    private Set<String> existingTestCaseTitles(ApiEndpoint apiEndpoint, ApiInventory apiInventory) {
+        LinkedHashSet<TestCase> testCases = new LinkedHashSet<>(
+                testCaseRepository.findByApiEndpointIdAndActiveTrueOrderByUpdatedAtDesc(apiEndpoint.getId())
+        );
+        if (apiInventory != null) {
+            testCases.addAll(testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId()));
+        }
+        return testCases.stream()
+                .map(TestCase::getName)
+                .map(this::normalizeTitle)
+                .filter(title -> !title.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private String normalizeTitle(String title) {
+        return title == null ? "" : title.trim();
     }
 
     private Environment resolveSourceEnvironment(App app, Long environmentId) {
