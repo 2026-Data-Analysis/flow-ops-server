@@ -108,9 +108,16 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         ));
 
         List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
-        log.info("AI test case generator completed. generationId={}, draftCount={}",
-                generation.getId(),
-                commands.size());
+        if (commands.isEmpty()) {
+            log.warn("AI test case generator returned 0 drafts. generationId={}, responseRequestId={}, responseDraftsNull={}",
+                    generation.getId(),
+                    response == null ? "null" : response.requestId(),
+                    response == null || response.drafts() == null);
+        } else {
+            log.info("AI test case generator completed. generationId={}, draftCount={}",
+                    generation.getId(),
+                    commands.size());
+        }
         return commands;
     }
 
@@ -179,7 +186,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
 
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
         return new TestCaseApiPayload(
-                apiId,
+                apiId,           // endpoint_id
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
@@ -232,11 +239,12 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         if (apiId == null) {
             throw new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI response did not include a resolvable apiId or endpoint_id.");
         }
+        String type = draft.type() != null ? draft.type() : draft.test_case_type();
         return new AiGeneratedDraftCommand(
                 apiId,
                 draft.title(),
                 draft.description(),
-                draft.type(),
+                type,
                 draft.userRole(),
                 draft.stateCondition(),
                 draft.dataVariant(),
