@@ -6,6 +6,8 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
+import flowops.environment.domain.entity.Environment;
+import flowops.environment.service.EnvironmentService;
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.integration.ai.AiGeneratedDraftCommand;
@@ -59,10 +61,12 @@ public class TestGenerationService {
     private final ApiInventoryRepository apiInventoryRepository;
     private final AiTestGenerationGateway aiTestGenerationGateway;
     private final TestCaseRepository testCaseRepository;
+    private final EnvironmentService environmentService;
 
     @Transactional
     public TestGenerationDetailResponse requestGeneration(CreateTestGenerationRequest request) {
         App app = appService.getApp(request.appId());
+        Environment sourceEnvironment = resolveSourceEnvironment(app, request.environmentId());
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
                 .app(app)
                 .environment(null)
@@ -92,7 +96,7 @@ public class TestGenerationService {
                 .map(selectionRepository::save)
                 .toList();
 
-        generateDraftsAsync(generation.getId(), request.selectedApiIds());
+        generateDraftsAsync(generation.getId(), request.selectedApiIds(), sourceEnvironment == null ? null : sourceEnvironment.getId());
         return TestGenerationDetailResponse.of(generation, selections);
     }
 
@@ -212,12 +216,13 @@ public class TestGenerationService {
 
     @Async("applicationTaskExecutor")
     @Transactional
-    public void generateDraftsAsync(Long generationId, List<Long> apiIds) {
+    public void generateDraftsAsync(Long generationId, List<Long> apiIds, Long sourceEnvironmentId) {
         // 사용자 요청 응답을 막지 않도록 초안 생성은 비동기로 처리합니다.
         TestGeneration generation = getGeneration(generationId);
+        Environment sourceEnvironment = resolveSourceEnvironment(generation.getApp(), sourceEnvironmentId);
         try {
             generation.markProcessing();
-            List<AiGeneratedDraftCommand> commands = aiTestGenerationGateway.generateDrafts(generation, apiIds);
+            List<AiGeneratedDraftCommand> commands = aiTestGenerationGateway.generateDrafts(generation, apiIds, sourceEnvironment);
             List<GeneratedTestCaseDraft> drafts = createDraftsFromCommands(generation, commands);
             int duplicateCount = (int) drafts.stream().filter(GeneratedTestCaseDraft::isDuplicate).count();
             int newCount = drafts.size() - duplicateCount;
@@ -266,6 +271,20 @@ public class TestGenerationService {
                     .build()));
         }
         return drafts;
+    }
+
+    private Environment resolveSourceEnvironment(App app, Long environmentId) {
+        if (environmentId == null) {
+            return null;
+        }
+        Environment environment = environmentService.getEnvironment(environmentId);
+        if (!environment.getApp().getId().equals(app.getId())) {
+            throw new flowops.global.exception.ApiException(
+                    flowops.global.response.ErrorCode.INVALID_INPUT,
+                    "Source environment does not belong to the requested app."
+            );
+        }
+        return environment;
     }
 
     @Transactional(readOnly = true)

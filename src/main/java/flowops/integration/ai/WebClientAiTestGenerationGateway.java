@@ -66,10 +66,11 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     }
 
     @Override
-    public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds) {
-        log.info("Calling AI test case generator. generationId={}, appId={}, apiCount={}",
+    public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds, Environment sourceEnvironment) {
+        log.info("Calling AI test case generator. generationId={}, appId={}, sourceEnvironmentId={}, apiCount={}",
                 generation.getId(),
                 generation.getApp() == null ? null : generation.getApp().getId(),
+                sourceEnvironment == null ? null : sourceEnvironment.getId(),
                 apiIds == null ? 0 : apiIds.size());
         Map<String, Long> responseApiIdToSourceApiId = new LinkedHashMap<>();
         List<ApiSelection> selections = apiIds.stream()
@@ -91,12 +92,12 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 new ProjectPayload(resolveProjectId(selections, generation.getApp().getId()),
                         String.valueOf(generation.getApp().getId()),
                         generation.getApp().getName()),
-                toEnvironmentPayload(generation),
+                toEnvironmentPayload(generation, sourceEnvironment),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
                         String.valueOf(generation.getId()),
                         "SELECTED_APIS",
-                        resolveTestLevel(generation),
+                        resolveTestLevel(generation, sourceEnvironment),
                         toDouble(generation.getCurrentCoverage()),
                         resolveTargetCoverage(generation),
                         generation.getContextSummary()
@@ -135,12 +136,12 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 new ProjectPayload(resolveProjectId(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)), generation.getApp().getId()),
                         String.valueOf(generation.getApp().getId()),
                         generation.getApp().getName()),
-                toEnvironmentPayload(generation),
+                toEnvironmentPayload(generation, execution.getEnvironment()),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
                         String.valueOf(generation.getId()),
                         "FROM_FAILURE",
-                        resolveTestLevel(generation),
+                        resolveTestLevel(generation, execution.getEnvironment()),
                         toDouble(generation.getCurrentCoverage()),
                         resolveTargetCoverage(generation),
                         generation.getContextSummary()
@@ -298,8 +299,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 .replace("\n", "\\n") + "\"";
     }
 
-    private EnvironmentPayload toEnvironmentPayload(TestGeneration generation) {
-        Environment environment = generation.getEnvironment();
+    private EnvironmentPayload toEnvironmentPayload(TestGeneration generation, Environment sourceEnvironment) {
+        Environment environment = sourceEnvironment == null ? generation.getEnvironment() : sourceEnvironment;
         if (environment == null) {
             App app = generation.getApp();
             return new EnvironmentPayload(
@@ -325,11 +326,12 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         return Math.min(100.0, currentCoverage + 10.0);
     }
 
-    private String resolveTestLevel(TestGeneration generation) {
-        if (generation.getEnvironment() == null || generation.getEnvironment().getDefaultTestLevel() == null) {
+    private String resolveTestLevel(TestGeneration generation, Environment sourceEnvironment) {
+        Environment environment = sourceEnvironment == null ? generation.getEnvironment() : sourceEnvironment;
+        if (environment == null || environment.getDefaultTestLevel() == null) {
             return "REGRESSION";
         }
-        return generation.getEnvironment().getDefaultTestLevel().name();
+        return environment.getDefaultTestLevel().name();
     }
 
     private String resolveProjectId(List<ApiSelection> selections, Long fallbackProjectId) {

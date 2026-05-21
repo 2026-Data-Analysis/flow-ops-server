@@ -2,6 +2,7 @@ package flowops.integration.ai;
 
 import flowops.execution.domain.entity.Execution;
 import flowops.execution.domain.entity.ExecutionStepLog;
+import flowops.environment.domain.entity.Environment;
 import flowops.testgeneration.domain.entity.TestGeneration;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
@@ -21,10 +22,11 @@ public class MockAiTestGenerationGateway implements AiTestGenerationGateway {
     }
 
     @Override
-    public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds) {
-        log.warn("Returning mock AI test drafts. generationId={}, appId={}, apiCount={}",
+    public List<AiGeneratedDraftCommand> generateDrafts(TestGeneration generation, List<Long> apiIds, Environment sourceEnvironment) {
+        log.warn("Returning mock AI test drafts. generationId={}, appId={}, sourceEnvironmentId={}, apiCount={}",
                 generation.getId(),
                 generation.getApp() == null ? null : generation.getApp().getId(),
+                sourceEnvironment == null ? null : sourceEnvironment.getId(),
                 apiIds == null ? 0 : apiIds.size());
         List<AiGeneratedDraftCommand> drafts = new ArrayList<>();
         for (Long apiId : apiIds) {
