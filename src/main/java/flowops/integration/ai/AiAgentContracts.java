@@ -232,7 +232,9 @@ public final class AiAgentContracts {
             String endpoint_id,
             String name,
             String type,
-            String description
+            String description,
+            @JsonProperty("expected_status_code")
+            Integer expected_status_code
     ) {
     }
 

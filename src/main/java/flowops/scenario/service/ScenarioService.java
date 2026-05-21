@@ -386,9 +386,32 @@ public class ScenarioService {
                 String.valueOf(testCase.getId()),
                 endpointId,
                 testCase.getName(),
-                testCase.getType().name(),
-                testCase.getDescription()
+                toScenarioType(testCase.getType()),
+                testCase.getDescription(),
+                extractExpectedStatus(testCase.getExpectedSpec())
         );
+    }
+
+    private String toScenarioType(flowops.testcase.domain.entity.TestCaseType type) {
+        if (type == null) return "NORMAL";
+        return switch (type) {
+            case HAPPY_PATH -> "NORMAL";
+            case VALIDATION, FAILURE_HANDLING, AUTHORIZATION -> "EXCEPTION";
+            case EDGE_CASE, PERFORMANCE -> "BOUNDARY";
+        };
+    }
+
+    private Integer extractExpectedStatus(String expectedSpec) {
+        if (expectedSpec == null || expectedSpec.isBlank()) return 200;
+        try {
+            JsonNode node = objectMapper.readTree(expectedSpec);
+            JsonNode status = node.path("status");
+            if (!status.isMissingNode() && status.isInt()) return status.intValue();
+            JsonNode statusCode = node.path("statusCode");
+            if (!statusCode.isMissingNode() && statusCode.isInt()) return statusCode.intValue();
+        } catch (Exception ignored) {
+        }
+        return 200;
     }
 
     private ScenarioRecommendationResponse toRecommendation(
