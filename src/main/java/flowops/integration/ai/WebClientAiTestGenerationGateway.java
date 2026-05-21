@@ -91,14 +91,14 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 new ProjectPayload(resolveProjectId(selections, generation.getApp().getId()),
                         String.valueOf(generation.getApp().getId()),
                         generation.getApp().getName()),
-                toEnvironmentPayload(generation.getEnvironment()),
+                toEnvironmentPayload(generation),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
                         String.valueOf(generation.getId()),
                         "SELECTED_APIS",
                         resolveTestLevel(generation),
                         toDouble(generation.getCurrentCoverage()),
-                        null,
+                        resolveTargetCoverage(generation),
                         generation.getContextSummary()
                 ),
                 apis,
@@ -135,14 +135,14 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 new ProjectPayload(resolveProjectId(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)), generation.getApp().getId()),
                         String.valueOf(generation.getApp().getId()),
                         generation.getApp().getName()),
-                toEnvironmentPayload(generation.getEnvironment()),
+                toEnvironmentPayload(generation),
                 new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
                 new TestGenerationContext(
                         String.valueOf(generation.getId()),
                         "FROM_FAILURE",
                         resolveTestLevel(generation),
                         toDouble(generation.getCurrentCoverage()),
-                        null,
+                        resolveTargetCoverage(generation),
                         generation.getContextSummary()
                 ),
                 List.of(toTestCaseApiPayload(apiId, endpoint, inventory)),
@@ -298,9 +298,16 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 .replace("\n", "\\n") + "\"";
     }
 
-    private EnvironmentPayload toEnvironmentPayload(Environment environment) {
+    private EnvironmentPayload toEnvironmentPayload(TestGeneration generation) {
+        Environment environment = generation.getEnvironment();
         if (environment == null) {
-            return null;
+            App app = generation.getApp();
+            return new EnvironmentPayload(
+                    "app-" + app.getId(),
+                    app.getName() + " app scope",
+                    "",
+                    "REGRESSION"
+            );
         }
         return new EnvironmentPayload(
                 String.valueOf(environment.getId()),
@@ -308,6 +315,14 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 environment.getBaseUrl(),
                 environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
         );
+    }
+
+    private Double resolveTargetCoverage(TestGeneration generation) {
+        Double currentCoverage = toDouble(generation.getCurrentCoverage());
+        if (currentCoverage == null) {
+            return 100.0;
+        }
+        return Math.min(100.0, currentCoverage + 10.0);
     }
 
     private String resolveTestLevel(TestGeneration generation) {
