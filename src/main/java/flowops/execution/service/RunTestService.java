@@ -68,7 +68,7 @@ public class RunTestService {
     @Transactional
     public ExecutionDetailResponse createExecution(CreateExecutionRequest request) {
         App app = appService.getApp(request.appId());
-        Environment environment = environmentService.getEnvironment(request.environmentId());
+        Environment environment = resolveEnvironment(app.getId(), request.environmentId());
         TestLevel executionTestLevel = resolveTestLevel(environment, request.testLevel());
         Execution execution = executionRepository.save(Execution.builder()
                 .app(app)
@@ -96,7 +96,7 @@ public class RunTestService {
     @Transactional
     public ExecutionDetailResponse runApis(RunApisExecutionRequest request) {
         App app = appService.getApp(request.appId());
-        Environment environment = environmentService.getEnvironment(request.environmentId());
+        Environment environment = resolveEnvironment(app.getId(), request.environmentId());
         TestLevel executionTestLevel = resolveTestLevel(environment, request.testLevel());
         Long targetId = request.apiIds().get(0);
         List<ApiEndpoint> apiEndpoints = request.apiIds().stream()
@@ -376,7 +376,11 @@ public class RunTestService {
 
     private Environment resolveEnvironment(Long appId, Long environmentId) {
         if (environmentId != null) {
-            return environmentService.getEnvironment(environmentId);
+            Environment environment = environmentService.getEnvironment(environmentId);
+            if (!environment.getApp().getId().equals(appId)) {
+                throw new ApiException(ErrorCode.INVALID_INPUT, "The selected environment does not belong to the requested app.");
+            }
+            return environment;
         }
         return environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(appId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,

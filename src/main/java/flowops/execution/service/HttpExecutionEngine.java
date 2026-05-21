@@ -28,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient.RequestHeadersSpec;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -53,7 +54,7 @@ public class HttpExecutionEngine {
                 apiEndpoint,
                 stepName,
                 parseRequestDefinition(apiEndpoint.getRequestSchema()),
-                ExpectedDefinition.success2xx()
+                ExpectedDefinition.responseStatus()
         );
     }
 
@@ -143,9 +144,17 @@ public class HttpExecutionEngine {
         LocalDateTime startedAt = LocalDateTime.now();
         ActualHttpResult result = callHttp(execution.getEnvironment(), apiEndpoint, requestDefinition);
         LocalDateTime endedAt = LocalDateTime.now();
-        boolean passed = expectedDefinition.matches(result.statusCode());
-        String errorMessage = passed ? null : "Expected HTTP status " + expectedDefinition.label()
-                + ", but received " + result.statusCode() + ".";
+        List<ValidationOutcome> validationOutcomes = validateExpectedDefinition(
+                expectedDefinition,
+                result.statusCode(),
+                result.responseBody()
+        );
+        boolean passed = validationOutcomes.stream().allMatch(ValidationOutcome::passed);
+        String errorMessage = passed ? null : validationOutcomes.stream()
+                .filter(outcome -> !outcome.passed())
+                .map(ValidationOutcome::message)
+                .findFirst()
+                .orElse("Response did not match the expected criteria.");
 
         ExecutionStepLog log = executionStepLogRepository.save(ExecutionStepLog.builder()
                 .execution(execution)
@@ -165,7 +174,7 @@ public class HttpExecutionEngine {
                 .endedAt(endedAt)
                 .createdAt(startedAt)
                 .build());
-        saveStatusValidation(log, expectedDefinition, result.statusCode(), passed, errorMessage);
+        saveValidations(log, validationOutcomes);
         return log;
     }
 
@@ -187,7 +196,11 @@ public class HttpExecutionEngine {
                         }
                     });
 
-            return request.exchangeToMono(response -> response.bodyToMono(String.class)
+            RequestHeadersSpec<?> requestSpec = requestDefinition.hasBody()
+                    ? request.bodyValue(requestDefinition.bodyAsString())
+                    : request;
+
+            return requestSpec.exchangeToMono(response -> response.bodyToMono(String.class)
                             .defaultIfEmpty("")
                             .map(body -> new ActualHttpResult(
                                     response.statusCode().value(),
@@ -259,14 +272,25 @@ public class HttpExecutionEngine {
 
     private ExpectedDefinition parseExpectedDefinition(String spec) {
         JsonNode root = parseJson(spec);
-        if (root == null || root.isNull() || root.isMissingNode()) {
-            return ExpectedDefinition.success2xx();
+        if (root == null || root.isNull() || root.isMissingNode() || (root.isObject() && root.isEmpty())) {
+            return ExpectedDefinition.responseStatus();
         }
-        JsonNode status = firstPresent(root, "status", "statusCode", "expectedStatusCode");
+        JsonNode status = firstPresent(root, "status", "statusCode", "expectedStatusCode", "expected_status_code");
+        JsonNode body = firstPresent(root, "body", "responseBody", "expectedBody", "expectedResponse",
+                "expected", "json", "payload", "result", "data");
+        if (body == null && !root.isObject()) {
+            body = root;
+        }
+        if (body == null && root.isObject()
+                && !root.has("status") && !root.has("statusCode") && !root.has("expectedStatusCode")
+                && !root.has("expected_status_code")
+                && !root.has("assertions")) {
+            body = root;
+        }
         if (status != null && status.canConvertToInt()) {
-            return ExpectedDefinition.exact(status.asInt());
+            return new ExpectedDefinition(status.asInt(), body);
         }
-        return ExpectedDefinition.success2xx();
+        return new ExpectedDefinition(null, body);
     }
 
     private void extractVariables(String extractRules, String responseBody, Map<String, String> chainedVars) {
@@ -368,22 +392,111 @@ public class HttpExecutionEngine {
         return values;
     }
 
-    private void saveStatusValidation(
-            ExecutionStepLog log,
+    private void saveValidations(ExecutionStepLog log, List<ValidationOutcome> validationOutcomes) {
+        validationOutcomes.forEach(outcome -> testValidationResultRepository.save(TestValidationResult.builder()
+                .executionStep(log)
+                .assertionName(outcome.assertionName())
+                .expectedValue(outcome.expectedValue())
+                .actualValue(outcome.actualValue())
+                .passed(outcome.passed())
+                .message(outcome.message())
+                .createdAt(log.getCreatedAt())
+                .build()));
+    }
+
+    private List<ValidationOutcome> validateExpectedDefinition(
             ExpectedDefinition expectedDefinition,
             int actualStatus,
-            boolean passed,
-            String errorMessage
+            String responseBody
     ) {
-        testValidationResultRepository.save(TestValidationResult.builder()
-                .executionStep(log)
-                .assertionName("HTTP status")
-                .expectedValue(expectedDefinition.label())
-                .actualValue(String.valueOf(actualStatus))
-                .passed(passed)
-                .message(passed ? "Response status matched the expected criteria." : errorMessage)
-                .createdAt(log.getCreatedAt())
-                .build());
+        List<ValidationOutcome> outcomes = new ArrayList<>();
+        if (expectedDefinition.exactStatus() != null) {
+            outcomes.add(statusValidation(
+                    String.valueOf(expectedDefinition.exactStatus()),
+                    actualStatus,
+                    actualStatus == expectedDefinition.exactStatus()
+            ));
+        }
+        if (hasExpectedBody(expectedDefinition)) {
+            outcomes.add(bodyValidation(responseBody, expectedDefinition.expectedBody()));
+        }
+        if (outcomes.isEmpty()) {
+            boolean passed = actualStatus >= 200 && actualStatus < 300;
+            outcomes.add(statusValidation("2xx", actualStatus, passed));
+        }
+        return outcomes;
+    }
+
+    private boolean hasExpectedBody(ExpectedDefinition expectedDefinition) {
+        JsonNode expectedBody = expectedDefinition.expectedBody();
+        return expectedBody != null && !expectedBody.isNull() && !expectedBody.isMissingNode();
+    }
+
+    private ValidationOutcome statusValidation(String expectedValue, int actualStatus, boolean passed) {
+        String message = passed
+                ? "Response status matched the expected criteria."
+                : "Expected HTTP status " + expectedValue + ", but received " + actualStatus + ".";
+        return new ValidationOutcome("HTTP status", expectedValue, String.valueOf(actualStatus), passed, message);
+    }
+
+    private ValidationOutcome bodyValidation(String responseBody, JsonNode expectedBody) {
+        JsonNode actualBody = parseResponseBody(responseBody);
+        boolean passed = jsonContains(actualBody, expectedBody);
+        String message = passed
+                ? "Response body matched the expected criteria."
+                : "Expected response body to contain " + compactJson(expectedBody) + ".";
+        return new ValidationOutcome(
+                "Response body",
+                compactJson(expectedBody),
+                compactJson(actualBody),
+                passed,
+                message
+        );
+    }
+
+    private JsonNode parseResponseBody(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return objectMapper.nullNode();
+        }
+        try {
+            return objectMapper.readTree(responseBody);
+        } catch (Exception ignored) {
+            return objectMapper.getNodeFactory().textNode(responseBody);
+        }
+    }
+
+    private boolean jsonContains(JsonNode actual, JsonNode expected) {
+        if (expected == null || expected.isNull() || expected.isMissingNode()) {
+            return true;
+        }
+        if (actual == null || actual.isNull() || actual.isMissingNode()) {
+            return false;
+        }
+        if (expected.isObject()) {
+            if (!actual.isObject()) {
+                return false;
+            }
+            Iterator<Map.Entry<String, JsonNode>> fields = expected.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (!jsonContains(actual.get(field.getKey()), field.getValue())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (expected.isArray()) {
+            return actual.equals(expected);
+        }
+        return actual.equals(expected);
+    }
+
+    private String compactJson(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return "";
+        }
+        String value = node.isTextual() ? node.asText() : node.toString();
+        return value.length() > 1000 ? value.substring(0, 1000) + "..." : value;
     }
 
     private String escapeJson(String value) {
@@ -421,26 +534,25 @@ public class HttpExecutionEngine {
         }
     }
 
-    public record ExpectedDefinition(Integer exactStatus) {
+    public record ExpectedDefinition(Integer exactStatus, JsonNode expectedBody) {
 
         static ExpectedDefinition exact(int status) {
-            return new ExpectedDefinition(status);
+            return new ExpectedDefinition(status, null);
         }
 
-        static ExpectedDefinition success2xx() {
-            return new ExpectedDefinition(null);
+        static ExpectedDefinition responseStatus() {
+            return new ExpectedDefinition(null, null);
         }
 
-        boolean matches(int actualStatus) {
-            if (exactStatus != null) {
-                return actualStatus == exactStatus;
-            }
-            return actualStatus >= 200 && actualStatus < 300;
-        }
+    }
 
-        String label() {
-            return exactStatus == null ? "2xx" : String.valueOf(exactStatus);
-        }
+    private record ValidationOutcome(
+            String assertionName,
+            String expectedValue,
+            String actualValue,
+            boolean passed,
+            String message
+    ) {
     }
 
     private record ActualHttpResult(
