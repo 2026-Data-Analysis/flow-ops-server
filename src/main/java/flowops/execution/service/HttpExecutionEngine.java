@@ -207,7 +207,6 @@ public class HttpExecutionEngine {
                                     requestDefinition.bodyAsString(),
                                     body
                             )))
-                    .timeout(Duration.ofSeconds(30))
                     .block();
         } catch (Exception exception) {
             return new ActualHttpResult(
