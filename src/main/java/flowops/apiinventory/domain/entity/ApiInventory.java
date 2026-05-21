@@ -93,6 +93,28 @@ public class ApiInventory extends BaseEntity {
     @Comment("API 응답 스키마")
     private String responseSchema;
 
+    public void update(
+            String operationId,
+            String domainTag,
+            String summary,
+            ApiInventorySource sourceType,
+            ApiInventoryStatus status,
+            String specVersion,
+            boolean authRequired,
+            String requestSchema,
+            String responseSchema
+    ) {
+        this.operationId = operationId;
+        this.domainTag = domainTag;
+        this.summary = summary;
+        this.sourceType = sourceType;
+        this.status = status;
+        this.specVersion = specVersion;
+        this.authRequired = authRequired;
+        this.requestSchema = requestSchema;
+        this.responseSchema = responseSchema;
+    }
+
     @Builder
     private ApiInventory(
             Project project,

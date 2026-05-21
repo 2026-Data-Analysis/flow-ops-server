@@ -62,5 +62,7 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
             @Param("keyword") String keyword
     );
 
+    List<ApiInventory> findByRepositoryInfoIdAndBranchName(Long repositoryId, String branchName);
+
     void deleteByRepositoryInfoIdAndBranchName(Long repositoryId, String branchName);
 }

@@ -12,6 +12,7 @@ import flowops.github.domain.entity.RepositoryInfo;
 import flowops.github.dto.response.RepositoryFile;
 import java.util.EnumMap;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -76,16 +77,16 @@ public class ApiInventoryImportService {
                 .filter(file -> isOpenApiSpecPath(file.path()))
                 .toList();
 
-        apiInventoryRepository.deleteByRepositoryInfoIdAndBranchName(repositoryInfo.getId(), branchName);
+        Map<String, ApiInventory> existingByKey = buildExistingInventoryMap(repositoryInfo.getId(), branchName);
 
         ScanSummary scanSummary = new ScanSummary();
         for (RepositoryFile specFile : specFiles) {
             githubClient.fetchFileContent(owner, repositoryName, specFile.path(), branchName)
-                    .map(content -> saveParsedOperations(repositoryInfo, branchName, specFile, content, scanSummary))
+                    .map(content -> saveParsedOperations(repositoryInfo, branchName, specFile, content, scanSummary, existingByKey))
                     .orElse(0);
         }
         if (scanSummary.detectedEndpointCount() == 0) {
-            saveSpringControllerOperations(repositoryInfo, branchName, owner, repositoryName, repositoryFiles, scanSummary);
+            saveSpringControllerOperations(repositoryInfo, branchName, owner, repositoryName, repositoryFiles, scanSummary, existingByKey);
         }
 
         FrameworkScanResult frameworkScanResult = scanFramework(owner, repositoryName, branchName, repositoryFiles);
@@ -101,18 +102,46 @@ public class ApiInventoryImportService {
         );
     }
 
+    private Map<String, ApiInventory> buildExistingInventoryMap(Long repositoryId, String branchName) {
+        Map<String, ApiInventory> map = new HashMap<>();
+        for (ApiInventory inventory : apiInventoryRepository.findByRepositoryInfoIdAndBranchName(repositoryId, branchName)) {
+            map.put(inventoryKey(inventory.getMethod().name(), inventory.getEndpointPath()), inventory);
+        }
+        return map;
+    }
+
+    private String inventoryKey(String method, String endpointPath) {
+        return method + "|" + endpointPath;
+    }
+
     private int saveParsedOperations(
             RepositoryInfo repositoryInfo,
             String branchName,
             RepositoryFile specFile,
             String content,
-            ScanSummary scanSummary
+            ScanSummary scanSummary,
+            Map<String, ApiInventory> existingByKey
     ) {
         ParsedOpenApiSpec parsedSpec = openApiSpecParser.parse(specFile.name(), content);
         List<ParsedApiOperation> operations = parsedSpec.operations();
         scanSummary.addSpec(parsedSpec);
-        operations.stream()
-                .map(operation -> ApiInventory.builder()
+        for (ParsedApiOperation operation : operations) {
+            String key = inventoryKey(operation.method().name(), operation.endpointPath());
+            ApiInventory existing = existingByKey.get(key);
+            if (existing != null) {
+                existing.update(
+                        operation.operationId(),
+                        operation.domainTag(),
+                        operation.summary(),
+                        ApiInventorySource.OPENAPI,
+                        ApiInventoryStatus.ACTIVE,
+                        operation.specVersion(),
+                        operation.authRequired(),
+                        operation.requestSchema(),
+                        operation.responseSchema()
+                );
+            } else {
+                apiInventoryRepository.save(ApiInventory.builder()
                         .project(repositoryInfo.getProject())
                         .repositoryInfo(repositoryInfo)
                         .method(operation.method())
@@ -127,8 +156,9 @@ public class ApiInventoryImportService {
                         .authRequired(operation.authRequired())
                         .requestSchema(operation.requestSchema())
                         .responseSchema(operation.responseSchema())
-                        .build())
-                .forEach(apiInventoryRepository::save);
+                        .build());
+            }
+        }
         return operations.size();
     }
 
@@ -138,7 +168,8 @@ public class ApiInventoryImportService {
             String owner,
             String repositoryName,
             List<RepositoryFile> repositoryFiles,
-            ScanSummary scanSummary
+            ScanSummary scanSummary,
+            Map<String, ApiInventory> existingByKey
     ) {
         Set<String> seenOperations = new LinkedHashSet<>();
         repositoryFiles.stream()
@@ -151,23 +182,40 @@ public class ApiInventoryImportService {
                         .orElse(List.of())
                         .stream()
                         .filter(operation -> seenOperations.add(operation.method() + " " + operation.endpointPath()))
-                        .map(operation -> ApiInventory.builder()
-                                .project(repositoryInfo.getProject())
-                                .repositoryInfo(repositoryInfo)
-                                .method(operation.method())
-                                .endpointPath(operation.endpointPath())
-                                .operationId(operation.operationId())
-                                .domainTag(operation.domainTag())
-                                .branchName(branchName)
-                                .summary(operation.summary())
-                                .sourceType(ApiInventorySource.SPRING_CONTROLLER)
-                                .status(ApiInventoryStatus.ACTIVE)
-                                .specVersion(operation.specVersion())
-                                .authRequired(operation.authRequired())
-                                .build())
-                        .forEach(apiInventory -> {
-                            apiInventoryRepository.save(apiInventory);
-                            scanSummary.addOperation(apiInventory.getMethod());
+                        .forEach(operation -> {
+                            String key = inventoryKey(operation.method().name(), operation.endpointPath());
+                            ApiInventory existing = existingByKey.get(key);
+                            if (existing != null) {
+                                existing.update(
+                                        operation.operationId(),
+                                        operation.domainTag(),
+                                        operation.summary(),
+                                        ApiInventorySource.SPRING_CONTROLLER,
+                                        ApiInventoryStatus.ACTIVE,
+                                        operation.specVersion(),
+                                        operation.authRequired(),
+                                        null,
+                                        null
+                                );
+                                scanSummary.addOperation(existing.getMethod());
+                            } else {
+                                ApiInventory apiInventory = ApiInventory.builder()
+                                        .project(repositoryInfo.getProject())
+                                        .repositoryInfo(repositoryInfo)
+                                        .method(operation.method())
+                                        .endpointPath(operation.endpointPath())
+                                        .operationId(operation.operationId())
+                                        .domainTag(operation.domainTag())
+                                        .branchName(branchName)
+                                        .summary(operation.summary())
+                                        .sourceType(ApiInventorySource.SPRING_CONTROLLER)
+                                        .status(ApiInventoryStatus.ACTIVE)
+                                        .specVersion(operation.specVersion())
+                                        .authRequired(operation.authRequired())
+                                        .build();
+                                apiInventoryRepository.save(apiInventory);
+                                scanSummary.addOperation(apiInventory.getMethod());
+                            }
                         }));
     }
 
