@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -79,5 +80,12 @@ public class ScenarioController {
             @Valid @RequestBody ReorderScenarioStepsRequest request
     ) {
         return ApiResponse.success(scenarioService.reorderSteps(scenarioId, request));
+    }
+
+    @DeleteMapping("/scenarios/{scenarioId}")
+    @Operation(summary = "시나리오 삭제", description = "시나리오와 연결된 스텝을 삭제합니다.")
+    public ApiResponse<Void> deleteScenario(@PathVariable Long scenarioId) {
+        scenarioService.delete(scenarioId);
+        return ApiResponse.success(null);
     }
 }

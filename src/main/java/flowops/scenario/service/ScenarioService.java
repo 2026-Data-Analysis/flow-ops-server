@@ -493,6 +493,14 @@ public class ScenarioService {
         }
     }
 
+    @Transactional
+    public void delete(Long scenarioId) {
+        Scenario scenario = scenarioRepository.findById(scenarioId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "시나리오를 찾을 수 없습니다."));
+        scenarioStepRepository.deleteAll(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId));
+        scenarioRepository.delete(scenario);
+    }
+
     @Transactional(readOnly = true)
     public Scenario getScenario(Long scenarioId) {
         return scenarioRepository.findById(scenarioId)

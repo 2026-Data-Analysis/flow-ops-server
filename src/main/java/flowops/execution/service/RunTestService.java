@@ -13,10 +13,13 @@ import flowops.execution.domain.entity.ExecutionStatus;
 import flowops.execution.domain.entity.ExecutionStepLog;
 import flowops.execution.domain.entity.ExecutionStepStatus;
 import flowops.execution.domain.entity.ExecutionType;
+import flowops.environment.repository.EnvironmentRepository;
 import flowops.execution.dto.request.CreateExecutionRequest;
 import flowops.execution.dto.request.GenerateFailureTestCasesRequest;
 import flowops.execution.dto.request.RunApisExecutionRequest;
 import flowops.execution.dto.request.RunQuickTestRequest;
+import flowops.execution.dto.request.RunScenarioRequest;
+import flowops.execution.dto.request.RunTestCasesRequest;
 import flowops.execution.dto.response.ExecutionDetailResponse;
 import flowops.execution.dto.response.ExecutionStepLogResponse;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
@@ -54,6 +57,7 @@ public class RunTestService {
     private final ExecutionStepLogRepository executionStepLogRepository;
     private final AppService appService;
     private final EnvironmentService environmentService;
+    private final EnvironmentRepository environmentRepository;
     private final ApiEndpointService apiEndpointService;
     private final TestCaseService testCaseService;
     private final TestCaseRepository testCaseRepository;
@@ -228,6 +232,91 @@ public class RunTestService {
     }
 
     @Transactional
+    public ExecutionDetailResponse runScenario(RunScenarioRequest request) {
+        App app = appService.getApp(request.appId());
+        Environment environment = resolveEnvironment(request.appId(), request.environmentId());
+        TestLevel executionTestLevel = resolveTestLevel(environment, request.testLevel());
+
+        List<Long> ids = new ArrayList<>();
+        if (request.scenarioIds() != null && !request.scenarioIds().isEmpty()) {
+            ids.addAll(request.scenarioIds());
+        } else if (request.scenarioId() != null) {
+            ids.add(request.scenarioId());
+        }
+        if (ids.isEmpty()) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "실행할 시나리오를 하나 이상 선택해야 합니다.");
+        }
+
+        Execution execution = executionRepository.save(Execution.builder()
+                .app(app)
+                .environment(environment)
+                .executionType(ExecutionType.SCENARIO)
+                .targetId(ids.get(0))
+                .triggerSource(flowops.execution.domain.entity.ExecutionTriggerSource.MANUAL)
+                .executionMode(ExecutionMode.RUN_EXISTING)
+                .testLevel(executionTestLevel)
+                .name(ids.size() == 1 ? "Scenario execution" : "Scenario batch execution")
+                .status(ExecutionStatus.QUEUED)
+                .totalCount(0)
+                .passedCount(0)
+                .failedCount(0)
+                .createdBy(request.createdBy())
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        execution.markRunning();
+        List<ExecutionStepLog> logs = new ArrayList<>();
+        for (Long scenarioId : ids) {
+            logs.addAll(httpExecutionEngine.executeScenario(execution, scenarioId));
+        }
+        completeExecution(execution, logs);
+        return toDetail(execution, logs);
+    }
+
+    @Transactional
+    public ExecutionDetailResponse runTestCases(RunTestCasesRequest request) {
+        App app = appService.getApp(request.appId());
+        Environment environment = resolveEnvironment(request.appId(), request.environmentId());
+        TestLevel executionTestLevel = resolveTestLevel(environment, request.testLevel());
+
+        List<TestCase> testCases;
+        if (request.testCaseIds() != null && !request.testCaseIds().isEmpty()) {
+            testCases = request.testCaseIds().stream()
+                    .map(testCaseService::getActiveTestCase)
+                    .toList();
+        } else {
+            testCases = testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(app.getId());
+        }
+        if (testCases.isEmpty()) {
+            throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "실행할 수 있는 활성 테스트 케이스가 없습니다.");
+        }
+
+        Execution execution = executionRepository.save(Execution.builder()
+                .app(app)
+                .environment(environment)
+                .executionType(testCases.size() == 1 ? ExecutionType.TEST_CASE : ExecutionType.API_BATCH)
+                .targetId(testCases.get(0).getId())
+                .triggerSource(flowops.execution.domain.entity.ExecutionTriggerSource.MANUAL)
+                .executionMode(ExecutionMode.RUN_EXISTING)
+                .testLevel(executionTestLevel)
+                .name(testCases.size() == 1 ? "Test case execution" : "Test case batch execution")
+                .status(ExecutionStatus.QUEUED)
+                .totalCount(0)
+                .passedCount(0)
+                .failedCount(0)
+                .createdBy(request.createdBy())
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        execution.markRunning();
+        List<ExecutionStepLog> logs = testCases.stream()
+                .map(testCase -> httpExecutionEngine.executeTestCase(execution, testCase))
+                .toList();
+        completeExecution(execution, logs);
+        return toDetail(execution, logs);
+    }
+
+    @Transactional
     public ExecutionDetailResponse cancel(Long executionId) {
         Execution execution = findExecution(executionId);
         execution.cancel();
@@ -283,6 +372,15 @@ public class RunTestService {
         return groupedByDomain.values().stream()
                 .map(candidates -> candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())))
                 .toList();
+    }
+
+    private Environment resolveEnvironment(Long appId, Long environmentId) {
+        if (environmentId != null) {
+            return environmentService.getEnvironment(environmentId);
+        }
+        return environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(appId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "앱에 등록된 환경이 없습니다. 환경을 먼저 설정해 주세요."));
     }
 
     private TestLevel resolveTestLevel(Environment environment, TestLevel requestedTestLevel) {

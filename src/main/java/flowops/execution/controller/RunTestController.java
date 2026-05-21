@@ -4,6 +4,8 @@ import flowops.execution.dto.request.CreateExecutionRequest;
 import flowops.execution.dto.request.GenerateFailureTestCasesRequest;
 import flowops.execution.dto.request.RunApisExecutionRequest;
 import flowops.execution.dto.request.RunQuickTestRequest;
+import flowops.execution.dto.request.RunScenarioRequest;
+import flowops.execution.dto.request.RunTestCasesRequest;
 import flowops.execution.dto.response.ExecutionDetailResponse;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
 import flowops.execution.service.RunTestService;
@@ -43,6 +45,18 @@ public class RunTestController {
     @Operation(summary = "일괄 테스트 실행/생성", description = "run-apis와 동일한 일괄 실행/생성 API입니다.")
     public ApiResponse<ExecutionDetailResponse> runBatchTests(@Valid @RequestBody RunApisExecutionRequest request) {
         return ApiResponse.success(runTestService.runApis(request));
+    }
+
+    @PostMapping("/executions/run-scenario")
+    @Operation(summary = "시나리오 실행", description = "시나리오 ID 기준으로 시나리오를 실행합니다. environmentId 미입력 시 앱의 첫 번째 환경을 사용합니다.")
+    public ApiResponse<ExecutionDetailResponse> runScenario(@Valid @RequestBody RunScenarioRequest request) {
+        return ApiResponse.success(runTestService.runScenario(request));
+    }
+
+    @PostMapping("/executions/run-test-cases")
+    @Operation(summary = "테스트 케이스 실행", description = "테스트 케이스 ID 목록으로 실행합니다. environmentId 미입력 시 앱의 첫 번째 환경을 사용합니다.")
+    public ApiResponse<ExecutionDetailResponse> runTestCases(@Valid @RequestBody RunTestCasesRequest request) {
+        return ApiResponse.success(runTestService.runTestCases(request));
     }
 
     @PostMapping("/environments/{environmentId}/quick-test")

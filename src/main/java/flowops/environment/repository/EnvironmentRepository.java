@@ -8,6 +8,8 @@ public interface EnvironmentRepository extends JpaRepository<Environment, Long> 
 
     List<Environment> findByAppIdOrderByCreatedAtDesc(Long appId);
 
+    java.util.Optional<Environment> findFirstByAppIdOrderByCreatedAtAsc(Long appId);
+
     boolean existsByAppIdAndBranchName(Long appId, String branchName);
 
     boolean existsByAppIdAndRepositoryInfoIdAndBranchName(Long appId, Long repositoryId, String branchName);
