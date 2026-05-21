@@ -43,7 +43,13 @@ public class TestCaseService {
     }
 
     private List<TestCaseSummaryResponse> listByInventory(ApiInventory apiInventory) {
-        List<TestCase> testCases = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId());
+        List<TestCase> testCases = apiInventory.getRepositoryInfo() != null
+                ? testCaseRepository.findByRepositoryAndMethodAndPathAndActiveTrueOrderByUpdatedAtDesc(
+                        apiInventory.getRepositoryInfo().getId(),
+                        apiInventory.getMethod(),
+                        apiInventory.getEndpointPath()
+                )
+                : testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId());
         if (testCases.isEmpty()) {
             return List.of();
         }

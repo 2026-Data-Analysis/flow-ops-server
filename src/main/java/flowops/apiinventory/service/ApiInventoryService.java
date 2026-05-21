@@ -123,9 +123,9 @@ public class ApiInventoryService {
     public ApiInventoryDetailResponse getInventoryDetail(Long projectId, Long inventoryId) {
         ApiInventory apiInventory = apiInventoryRepository.findByIdAndProjectId(inventoryId, projectId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 인벤토리를 찾을 수 없습니다."));
-        long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
+        long totalTestCount = countTestCases(apiInventory);
         double coverage = Math.min(100.0, totalTestCount * 20.0);
-        List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+        List<TestLevel> testLevels = findTestCases(apiInventory)
                 .stream()
                 .map(TestCase::getTestLevel)
                 .distinct()
@@ -142,9 +142,9 @@ public class ApiInventoryService {
     }
 
     private ApiInventoryResponse toListItem(ApiInventory apiInventory) {
-        long totalTestCount = testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
+        long totalTestCount = countTestCases(apiInventory);
         double coverage = Math.min(100.0, totalTestCount * 20.0);
-        List<TestLevel> testLevels = testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+        List<TestLevel> testLevels = findTestCases(apiInventory)
                 .stream()
                 .map(TestCase::getTestLevel)
                 .distinct()
@@ -160,12 +160,12 @@ public class ApiInventoryService {
 
     private ApiInventoryBranchSummaryResponse branchSummary(String branchName, List<ApiInventory> inventories) {
         long totalTestCount = inventories.stream()
-                .mapToLong(inventory -> testCaseRepository.countByApiInventoryIdAndActiveTrue(inventory.getId()))
+                .mapToLong(this::countTestCases)
                 .sum();
         double averageCoverage = inventories.isEmpty()
                 ? 0.0
                 : inventories.stream()
-                .mapToDouble(inventory -> Math.min(100.0, testCaseRepository.countByApiInventoryIdAndActiveTrue(inventory.getId()) * 20.0))
+                .mapToDouble(inventory -> Math.min(100.0, countTestCases(inventory) * 20.0))
                 .average()
                 .orElse(0.0);
         return new ApiInventoryBranchSummaryResponse(branchName, inventories.size(), averageCoverage, totalTestCount);
@@ -184,9 +184,31 @@ public class ApiInventoryService {
         if (testLevel == null) {
             return true;
         }
-        return testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId())
+        return findTestCases(apiInventory)
                 .stream()
                 .anyMatch(testCase -> testCase.getTestLevel() == testLevel);
+    }
+
+    private long countTestCases(ApiInventory apiInventory) {
+        if (apiInventory.getRepositoryInfo() != null) {
+            return testCaseRepository.countByRepositoryAndMethodAndPathAndActiveTrue(
+                    apiInventory.getRepositoryInfo().getId(),
+                    apiInventory.getMethod(),
+                    apiInventory.getEndpointPath()
+            );
+        }
+        return testCaseRepository.countByApiInventoryIdAndActiveTrue(apiInventory.getId());
+    }
+
+    private List<TestCase> findTestCases(ApiInventory apiInventory) {
+        if (apiInventory.getRepositoryInfo() != null) {
+            return testCaseRepository.findByRepositoryAndMethodAndPathAndActiveTrueOrderByUpdatedAtDesc(
+                    apiInventory.getRepositoryInfo().getId(),
+                    apiInventory.getMethod(),
+                    apiInventory.getEndpointPath()
+            );
+        }
+        return testCaseRepository.findByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(apiInventory.getId());
     }
 
     private String blankToNull(String value) {
