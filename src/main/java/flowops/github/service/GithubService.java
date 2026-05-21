@@ -54,7 +54,7 @@ public class GithubService {
         Project project = projectService.getProjectOrCreateDefault(projectId);
         RepositoryName repositoryName = RepositoryName.from(request.fullName());
         return repositoryInfoRepository.findByFullName(repositoryName.fullName())
-                .map(repositoryInfo -> connectExistingRepositoryApp(repositoryInfo, request.appId()))
+                .map(repositoryInfo -> connectExistingRepositoryApp(repositoryInfo, request.appId(), request.selectedBranches()))
                 .orElseGet(() -> registerNewRepository(project, repositoryName, request));
     }
 
@@ -101,12 +101,26 @@ public class GithubService {
         return RepositoryResponse.from(savedRepositoryInfo, branches, List.of());
     }
 
-    private RepositoryResponse connectExistingRepositoryApp(RepositoryInfo repositoryInfo, Long appId) {
+    private RepositoryResponse connectExistingRepositoryApp(
+            RepositoryInfo repositoryInfo,
+            Long appId,
+            List<String> selectedBranches
+    ) {
         if (appId != null && repositoryInfo.getApp() == null) {
-            App app = appService.getApp(appId);
-            repositoryInfo.connectApp(app);
-            ensureSelectedBranchEnvironments(app, repositoryInfo);
+            repositoryInfo.connectApp(appService.getApp(appId));
         }
+
+        App app = repositoryInfo.getApp();
+        if (app == null) {
+            return toResponse(repositoryInfo);
+        }
+
+        if (selectedBranches != null && !selectedBranches.isEmpty()) {
+            Set<String> selectedSet = new LinkedHashSet<>(selectedBranches);
+            repositoryInfo.updateSelectedBranches(selectedSet);
+        }
+
+        ensureSelectedBranchEnvironments(app, repositoryInfo);
         return toResponse(repositoryInfo);
     }
 

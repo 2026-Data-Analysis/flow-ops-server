@@ -45,6 +45,10 @@ public class RepositoryBranch extends BaseEntity {
     @Comment("GitHub 기본 브랜치 여부")
     private boolean defaultBranch;
 
+    public void setSelected(boolean selected) {
+        this.selected = selected;
+    }
+
     @Builder
     private RepositoryBranch(
             RepositoryInfo repositoryInfo,

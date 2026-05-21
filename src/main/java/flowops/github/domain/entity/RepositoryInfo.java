@@ -118,6 +118,12 @@ public class RepositoryInfo extends BaseEntity {
                 .build());
     }
 
+    public void updateSelectedBranches(java.util.Set<String> selectedBranchNames) {
+        for (RepositoryBranch branch : branches) {
+            branch.setSelected(selectedBranchNames.contains(branch.getBranchName()));
+        }
+    }
+
     public void connectApp(App app) {
         this.app = app;
     }
