@@ -59,6 +59,16 @@ public class ExecutionQueryService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<ExecutionDetailResponse> listExecutionsByApp(Long appId, Pageable pageable) {
+        Page<ExecutionDetailResponse> page = executionRepository.findByAppIdOrderByCreatedAtDesc(appId, pageable)
+                .map(execution -> {
+                    List<ExecutionStepLog> logs = executionStepLogRepository.findByExecutionIdOrderByCreatedAtAsc(execution.getId());
+                    return ExecutionDetailResponse.of(execution, logs, logs.stream().map(ExecutionStepLogResponse::from).toList());
+                });
+        return PageResponse.from(page);
+    }
+
+    @Transactional(readOnly = true)
     public ExecutionDetailResponse getExecution(Long executionId) {
         Execution execution = findExecution(executionId);
         List<ExecutionStepLog> logs = executionStepLogRepository.findByExecutionIdOrderByCreatedAtAsc(executionId);

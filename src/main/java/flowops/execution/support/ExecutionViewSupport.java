@@ -23,7 +23,7 @@ public final class ExecutionViewSupport {
 
     public static String caseName(Execution execution, ExecutionStepLog log) {
         if (log == null) {
-            return null;
+            return execution == null ? null : execution.getName();
         }
         if (execution != null && execution.getExecutionType() == ExecutionType.SCENARIO) {
             return log.getScenarioStep() == null

@@ -33,6 +33,14 @@ public interface ExecutionRepository extends JpaRepository<Execution, Long> {
     );
 
     @Query("""
+            select e
+            from Execution e
+            where e.app.id = :appId
+            order by e.createdAt desc
+            """)
+    Page<Execution> findByAppIdOrderByCreatedAtDesc(@Param("appId") Long appId, Pageable pageable);
+
+    @Query("""
             select max(e.endedAt)
             from Execution e
             where e.executionType = flowops.execution.domain.entity.ExecutionType.API
