@@ -1,6 +1,7 @@
 package flowops.app.controller;
 
 import flowops.app.dto.request.CreateAppRequest;
+import flowops.app.dto.request.SetMainAppRequest;
 import flowops.app.dto.response.AppDetailResponse;
 import flowops.app.service.AppService;
 import flowops.global.response.ApiResponse;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,5 +38,15 @@ public class AppController {
     @Operation(summary = "앱 상세 조회", description = "앱 기본 정보와 메타데이터를 조회합니다.")
     public ApiResponse<AppDetailResponse> getApp(@PathVariable Long appId) {
         return ApiResponse.success(appService.getAppDetail(appId));
+    }
+
+    @PutMapping("/{appId}/main")
+    @Operation(summary = "메인 앱 지정", description = "활성 앱으로 지정하고 선택적으로 이름을 변경합니다.")
+    public ApiResponse<AppDetailResponse> setMainApp(
+            @PathVariable Long appId,
+            @RequestBody(required = false) SetMainAppRequest request
+    ) {
+        String title = request != null ? request.title() : null;
+        return ApiResponse.success(appService.setMain(appId, title));
     }
 }

@@ -41,6 +41,13 @@ public class AppService {
         return AppDetailResponse.from(app);
     }
 
+    @Transactional
+    public AppDetailResponse setMain(Long appId, String title) {
+        App app = getApp(appId);
+        app.rename(title);
+        return AppDetailResponse.from(app);
+    }
+
     @Transactional(readOnly = true)
     public AppDetailResponse getAppDetail(Long appId) {
         return AppDetailResponse.from(getApp(appId));

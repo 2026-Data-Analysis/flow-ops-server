@@ -37,6 +37,12 @@ public class App extends BaseEntity {
     @Column(name = "default_branch", length = 100)
     private String defaultBranch;
 
+    public void rename(String name) {
+        if (name != null && !name.isBlank()) {
+            this.name = name.trim();
+        }
+    }
+
     @Builder
     private App(String name, String repoUrl, String specSource, String defaultBranch) {
         this.name = name;
