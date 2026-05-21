@@ -186,6 +186,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
 
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
         return new TestCaseApiPayload(
+                apiId,           // apiId
                 apiId,           // endpoint_id
                 endpoint.getMethod().name(),
                 endpoint.getPath(),

@@ -79,6 +79,7 @@ public final class AiAgentContracts {
 
     @Schema(description = "Test case generator API payload")
     public record TestCaseApiPayload(
+            String apiId,
             @JsonProperty("endpoint_id")
             String endpoint_id,
             String method,
