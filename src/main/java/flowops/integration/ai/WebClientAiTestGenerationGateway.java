@@ -85,7 +85,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 })
                 .toList();
 
-        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(new TestCaseGeneratorRequest(
+        List<ExistingTestCasePayload> existingTestCases = existingTestCases(selections);
+        TestCaseGeneratorRequest request = new TestCaseGeneratorRequest(
                 AGENT,
                 UUID.randomUUID().toString(),
                 generation.getRequestedBy(),
@@ -103,16 +104,31 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         generation.getContextSummary()
                 ),
                 apis,
-                existingTestCases(selections),
+                existingTestCases,
                 null
-        ));
+        );
+        log.debug("AI test case generator request payload. generationId={}, payload={}",
+                generation.getId(),
+                toJsonForLog(request));
+        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(request);
+        log.debug("AI test case generator response payload. generationId={}, payload={}",
+                generation.getId(),
+                toJsonForLog(response));
 
         List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
         if (commands.isEmpty()) {
-            log.warn("AI test case generator returned 0 drafts. generationId={}, responseRequestId={}, responseDraftsNull={}",
+            log.warn("AI test case generator returned 0 drafts. generationId={}, responseRequestId={}, responseDraftsNull={}, apiSummaries={}, existingTestCaseCount={}, contextSummaryLength={}, projectId={}, environmentId={}, environmentBaseUrlPresent={}",
                     generation.getId(),
                     response == null ? "null" : response.requestId(),
-                    response == null || response.drafts() == null);
+                    response == null || response.drafts() == null,
+                    summarizeApis(apis),
+                    existingTestCases.size(),
+                    generation.getContextSummary() == null ? 0 : generation.getContextSummary().length(),
+                    request.project() == null ? null : request.project().projectId(),
+                    request.environment() == null ? null : request.environment().environmentId(),
+                    request.environment() != null
+                            && request.environment().baseUrl() != null
+                            && !request.environment().baseUrl().isBlank());
         } else {
             log.info("AI test case generator completed. generationId={}, draftCount={}",
                     generation.getId(),
@@ -136,7 +152,9 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         );
         ApiInventory inventory = failedLog.getTestCase() == null ? null : failedLog.getTestCase().getApiInventory();
 
-        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(new TestCaseGeneratorRequest(
+        List<TestCaseApiPayload> apis = List.of(toTestCaseApiPayload(apiId, endpoint, inventory));
+        List<ExistingTestCasePayload> existingTestCases = existingTestCases(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)));
+        TestCaseGeneratorRequest request = new TestCaseGeneratorRequest(
                 AGENT,
                 UUID.randomUUID().toString(),
                 generation.getRequestedBy(),
@@ -153,8 +171,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         resolveTargetCoverage(generation),
                         generation.getContextSummary()
                 ),
-                List.of(toTestCaseApiPayload(apiId, endpoint, inventory)),
-                existingTestCases(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory))),
+                apis,
+                existingTestCases,
                 new FailureContextPayload(
                         execution.getId(),
                         failedLog.getId(),
@@ -165,9 +183,28 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         expectedBehavior(failedLog),
                         actualBehavior(failedLog)
                 )
-        ));
+        );
+        log.debug("AI failure test generator request payload. generationId={}, payload={}",
+                generation.getId(),
+                toJsonForLog(request));
+        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(request);
+        log.debug("AI failure test generator response payload. generationId={}, payload={}",
+                generation.getId(),
+                toJsonForLog(response));
 
         List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
+        if (commands.isEmpty()) {
+            log.warn("AI failure test generator returned 0 drafts. generationId={}, executionId={}, failedLogId={}, responseRequestId={}, responseDraftsNull={}, apiSummaries={}, existingTestCaseCount={}, failureStatusCode={}, failureErrorPresent={}",
+                    generation.getId(),
+                    execution.getId(),
+                    failedLog.getId(),
+                    response == null ? "null" : response.requestId(),
+                    response == null || response.drafts() == null,
+                    summarizeApis(apis),
+                    existingTestCases.size(),
+                    failedLog.getResponseCode(),
+                    failedLog.getErrorMessage() != null && !failedLog.getErrorMessage().isBlank());
+        }
         log.info("AI failure test generator completed. generationId={}, draftCount={}",
                 generation.getId(),
                 commands.size());
@@ -393,6 +430,49 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
 
     private Double toDouble(java.math.BigDecimal value) {
         return value == null ? null : value.doubleValue();
+    }
+
+    private List<String> summarizeApis(List<TestCaseApiPayload> apis) {
+        return apis.stream()
+                .map(api -> "%s %s apiId=%s endpointId=%s requestSchema=%s responseSchema=%s authRequired=%s deprecated=%s".formatted(
+                        api.method(),
+                        api.path(),
+                        api.apiId(),
+                        api.endpoint_id(),
+                        hasMeaningfulJson(api.request_body_schema()),
+                        hasMeaningfulJson(api.response_schema()),
+                        api.authRequired(),
+                        api.deprecated()
+                ))
+                .toList();
+    }
+
+    private boolean hasMeaningfulJson(JsonNode value) {
+        return value != null
+                && !value.isNull()
+                && !value.isMissingNode()
+                && !(value.isObject() && value.isEmpty())
+                && !(value.isArray() && value.isEmpty())
+                && !(value.isTextual() && value.asText().isBlank());
+    }
+
+    private String toJsonForLog(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        try {
+            return compact(objectMapper.writeValueAsString(value));
+        } catch (Exception exception) {
+            return "<unserializable:%s>".formatted(exception.getClass().getSimpleName());
+        }
+    }
+
+    private String compact(String value) {
+        if (value == null || value.isBlank()) {
+            return "<empty>";
+        }
+        String compacted = value.replaceAll("\\s+", " ").trim();
+        return compacted.length() > 4000 ? compacted.substring(0, 4000) + "..." : compacted;
     }
 
     private record ApiSelection(
