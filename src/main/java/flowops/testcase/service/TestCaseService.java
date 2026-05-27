@@ -36,6 +36,26 @@ public class TestCaseService {
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
+    public List<TestCaseSummaryResponse> listByApp(Long appId, String domainTag, String method) {
+        return testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(appId)
+                .stream()
+                .filter(tc -> matchesDomainTag(tc, domainTag))
+                .filter(tc -> matchesMethod(tc, method))
+                .map(tc -> TestCaseSummaryResponse.from(tc, tc.getApiEndpoint()))
+                .toList();
+    }
+
+    private boolean matchesDomainTag(TestCase tc, String domainTag) {
+        if (domainTag == null || domainTag.isBlank()) return true;
+        return domainTag.equals(tc.getApiEndpoint().getDomainTag());
+    }
+
+    private boolean matchesMethod(TestCase tc, String method) {
+        if (method == null || method.isBlank()) return true;
+        return method.equals(tc.getApiEndpoint().getMethod().name());
+    }
+
+    @Transactional(readOnly = true)
     public List<TestCaseSummaryResponse> listByApi(Long apiId) {
         return apiInventoryRepository.findById(apiId)
                 .map(this::listByInventory)

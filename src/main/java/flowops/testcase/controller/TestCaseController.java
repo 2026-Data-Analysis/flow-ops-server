@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -27,6 +28,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class TestCaseController {
 
     private final TestCaseService testCaseService;
+
+    @GetMapping("/apps/{appId}/test-cases")
+    @Operation(summary = "앱별 테스트 케이스 목록 조회", description = "앱에 속한 활성 테스트 케이스 목록을 도메인, 메서드별로 필터링하여 조회합니다.")
+    public ApiResponse<List<TestCaseSummaryResponse>> getTestCasesByApp(
+            @PathVariable Long appId,
+            @RequestParam(required = false) String domainTag,
+            @RequestParam(required = false) String method
+    ) {
+        return ApiResponse.success(testCaseService.listByApp(appId, domainTag, method));
+    }
 
     @GetMapping("/apis/{apiId}/test-cases")
     @Operation(summary = "API별 테스트 케이스 목록 조회", description = "특정 API에 연결된 활성 테스트 케이스 목록을 조회합니다.")

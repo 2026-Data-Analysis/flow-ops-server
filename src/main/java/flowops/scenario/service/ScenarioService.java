@@ -103,15 +103,30 @@ public class ScenarioService {
     }
 
     @Transactional(readOnly = true)
-    public List<ScenarioSummaryResponse> listByApp(Long appId, Long environmentId, Long repositoryId, String branchName) {
+    public List<ScenarioSummaryResponse> listByApp(Long appId, Long environmentId, Long repositoryId, String branchName, String domainTag, String method) {
         appService.getApp(appId);
         List<Scenario> scenarios = scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId);
         return scenarios.stream()
+                .filter(scenario -> matchesStepFilter(scenario, domainTag, method))
                 .map(scenario -> ScenarioSummaryResponse.from(
                         scenario,
                         scenarioStepRepository.countByScenarioId(scenario.getId())
                 ))
                 .toList();
+    }
+
+    private boolean matchesStepFilter(Scenario scenario, String domainTag, String method) {
+        if ((domainTag == null || domainTag.isBlank()) && (method == null || method.isBlank())) {
+            return true;
+        }
+        List<ScenarioStep> steps = scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenario.getId());
+        return steps.stream().anyMatch(step -> {
+            ApiEndpoint endpoint = step.getApiEndpoint();
+            if (endpoint == null) return false;
+            boolean domainMatch = domainTag == null || domainTag.isBlank() || domainTag.equals(endpoint.getDomainTag());
+            boolean methodMatch = method == null || method.isBlank() || method.equals(endpoint.getMethod().name());
+            return domainMatch && methodMatch;
+        });
     }
 
     @Transactional(readOnly = true)

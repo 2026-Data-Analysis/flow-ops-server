@@ -53,9 +53,11 @@ public class ScenarioController {
             @PathVariable Long appId,
             @RequestParam(required = false) Long environmentId,
             @RequestParam(required = false) Long repositoryId,
-            @RequestParam(required = false) String branchName
+            @RequestParam(required = false) String branchName,
+            @RequestParam(required = false) String domainTag,
+            @RequestParam(required = false) String method
     ) {
-        return ApiResponse.success(scenarioService.listByApp(appId, environmentId, repositoryId, branchName));
+        return ApiResponse.success(scenarioService.listByApp(appId, environmentId, repositoryId, branchName, domainTag, method));
     }
 
     @GetMapping("/scenarios/{scenarioId}")
