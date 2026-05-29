@@ -523,4 +523,46 @@ public final class AiAgentContracts {
             List<ClassifiedDraftPayload> drafts
     ) {
     }
+
+    @Schema(description = "Orchestrator agent chat request")
+    public record OrchestratorChatRequest(
+            @JsonProperty("project_id")
+            String project_id,
+            @JsonProperty("user_prompt")
+            String user_prompt,
+            JsonNode context
+    ) {
+    }
+
+    @Schema(description = "Orchestrator agent chat response")
+    public record OrchestratorChatResponse(
+            boolean success,
+            OrchestratorChatDataPayload data,
+            @JsonProperty("error_code")
+            String error_code,
+            @JsonProperty("error_message")
+            String error_message,
+            @JsonProperty("trace_id")
+            String trace_id
+    ) {
+    }
+
+    public record OrchestratorChatDataPayload(
+            @JsonProperty("dispatched_agents")
+            List<String> dispatched_agents,
+            @JsonProperty("agent_results")
+            List<OrchestratorAgentResultPayload> agent_results,
+            String summary
+    ) {
+    }
+
+    public record OrchestratorAgentResultPayload(
+            @JsonProperty("agent_type")
+            String agent_type,
+            boolean success,
+            JsonNode data,
+            @JsonProperty("error_message")
+            String error_message
+    ) {
+    }
 }

@@ -6,6 +6,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.OrchestratorChatRequest;
+import flowops.integration.ai.AiAgentContracts.OrchestratorChatResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
@@ -67,5 +69,13 @@ public class AiAgentController {
             @Valid @RequestBody TestStrategyClassifierRequest request
     ) {
         return ApiResponse.success(aiClient.classifyTestStrategy(request));
+    }
+
+    @PostMapping("/orchestrator/chat")
+    @Operation(summary = "Orchestrator chat", description = "사용자 자연어 요청과 컨텍스트를 AI orchestrator로 전달하고, 라우팅된 agent 결과를 반환합니다.")
+    public ApiResponse<OrchestratorChatResponse> chatWithOrchestrator(
+            @Valid @RequestBody OrchestratorChatRequest request
+    ) {
+        return ApiResponse.success(aiClient.chatWithOrchestrator(request));
     }
 }

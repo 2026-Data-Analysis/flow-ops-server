@@ -15,6 +15,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.OrchestratorChatRequest;
+import flowops.integration.ai.AiAgentContracts.OrchestratorChatResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
@@ -88,6 +90,11 @@ public class AiWebClient implements AiClient {
     @Override
     public TestStrategyClassifierResponse classifyTestStrategy(TestStrategyClassifierRequest request) {
         return post("/agents/test-strategy/classify", request, TestStrategyClassifierResponse.class);
+    }
+
+    @Override
+    public OrchestratorChatResponse chatWithOrchestrator(OrchestratorChatRequest request) {
+        return post("/v1/agents/orchestrator/chat", request, OrchestratorChatResponse.class);
     }
 
     private <T, R> R post(String path, T request, Class<R> responseType) {
