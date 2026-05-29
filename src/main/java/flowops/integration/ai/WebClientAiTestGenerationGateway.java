@@ -44,6 +44,7 @@ import org.springframework.stereotype.Component;
 public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway {
 
     private static final String AGENT = "TEST_CASE_GENERATOR";
+    private static final int MAX_GENERATION_RETRIES = 2;
 
     private final AiClient aiClient;
     private final ApiEndpointService apiEndpointService;
@@ -110,7 +111,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         log.debug("AI test case generator request payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(request));
-        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(request);
+        TestCaseGeneratorResponse response = generateTestCaseDraftsWithRetry(generation.getId(), request);
         log.debug("AI test case generator response payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(response));
@@ -187,7 +188,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         log.debug("AI failure test generator request payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(request));
-        TestCaseGeneratorResponse response = aiClient.generateTestCaseDrafts(request);
+        TestCaseGeneratorResponse response = generateTestCaseDraftsWithRetry(generation.getId(), request);
         log.debug("AI failure test generator response payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(response));
@@ -224,7 +225,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
         return new TestCaseApiPayload(
                 apiId,           // apiId
-                apiId,           // endpoint_id
+                endpointId(endpoint),
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
@@ -233,6 +234,52 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 inventory == null ? null : inventory.isAuthRequired(),
                 endpoint.isDeprecated()
         );
+    }
+
+    private TestCaseGeneratorResponse generateTestCaseDraftsWithRetry(Long generationId, TestCaseGeneratorRequest request) {
+        ApiException retryableException = null;
+        TestCaseGeneratorResponse response = null;
+        for (int attempt = 0; attempt <= MAX_GENERATION_RETRIES; attempt++) {
+            try {
+                response = aiClient.generateTestCaseDrafts(request);
+                if (!isEmpty(response)) {
+                    return response;
+                }
+                if (attempt < MAX_GENERATION_RETRIES) {
+                    log.warn("AI test case generator returned empty drafts, retrying. generationId={}, requestId={}, attempt={}",
+                            generationId,
+                            request.requestId(),
+                            attempt + 1);
+                }
+            } catch (ApiException exception) {
+                if (!isRetryableEmptyGeneration(exception) || attempt == MAX_GENERATION_RETRIES) {
+                    throw exception;
+                }
+                retryableException = exception;
+                log.warn("AI test case generator returned retryable empty-generation error, retrying. generationId={}, requestId={}, attempt={}, error={}",
+                        generationId,
+                        request.requestId(),
+                        attempt + 1,
+                        compact(exception.getMessage()));
+            }
+        }
+        if (retryableException != null) {
+            throw retryableException;
+        }
+        return response;
+    }
+
+    private boolean isEmpty(TestCaseGeneratorResponse response) {
+        return response == null
+                || response.drafts() == null
+                || response.drafts().isEmpty();
+    }
+
+    private boolean isRetryableEmptyGeneration(ApiException exception) {
+        String message = exception.getMessage();
+        return message != null
+                && (message.contains("No test cases generated")
+                || message.contains("Please retry"));
     }
 
     private List<ExistingTestCasePayload> existingTestCases(List<ApiSelection> selections) {
