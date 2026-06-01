@@ -279,22 +279,33 @@ public final class AiAgentContracts {
     ) {
     }
 
-    @Schema(description = "AI가 반환한 시나리오 스텝. order, endpoint_id, name 등은 응답 변환 대상 필드입니다.")
+    @Schema(description = "AI가 반환한 시나리오 스텝. PDF 명세 기준 camelCase 필드 포함.")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScenarioStepPayload(
             @JsonProperty("step_id")
             String step_id,
             String ref,
             Integer order,
-            @JsonProperty("endpoint_id")
-            String endpoint_id,
+            @JsonProperty("chained_variables")
+            JsonNode chained_variables,
+            String apiId,
+            String title,
             String name,
             String description,
+            String type,
+            @JsonProperty("test_case_type")
+            String test_case_type,
+            String userRole,
+            String stateCondition,
+            String dataVariant,
+            JsonNode requestSpec,
+            JsonNode expectedSpec,
+            JsonNode assertionSpec,
+            boolean duplicate,
             @JsonProperty("static_payload")
             JsonNode static_payload,
             @JsonProperty("static_params")
             JsonNode static_params,
-            @JsonProperty("chained_variables")
-            JsonNode chained_variables,
             @JsonProperty("expected_status_code")
             Integer expected_status_code,
             @JsonProperty("expected_assertions")
