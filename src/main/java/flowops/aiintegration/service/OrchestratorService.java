@@ -119,7 +119,6 @@ public class OrchestratorService {
             for (JsonNode ep : inventory.get("endpoints")) {
                 apis.add(new TestCaseApiPayload(
                         textOrNull(ep, "endpoint_id"),
-                        textOrNull(ep, "endpoint_id"),
                         textOrNull(ep, "method"),
                         textOrNull(ep, "path"),
                         null,

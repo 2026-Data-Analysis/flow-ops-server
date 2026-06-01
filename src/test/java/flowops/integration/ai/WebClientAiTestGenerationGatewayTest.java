@@ -2,7 +2,6 @@ package flowops.integration.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,8 +12,6 @@ import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
-import flowops.global.exception.ApiException;
-import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
@@ -47,7 +44,7 @@ class WebClientAiTestGenerationGatewayTest {
     private TestCaseRepository testCaseRepository;
 
     @Test
-    void generateDraftsSendsStableEndpointIdInPayload() {
+    void generateDraftsSendsContractApiSchemaFieldsInPayload() {
         App app = app(41L);
         TestGeneration generation = generation(57L, app);
         ApiEndpoint endpoint = endpoint(2059L, app);
@@ -65,11 +62,12 @@ class WebClientAiTestGenerationGatewayTest {
         verify(aiClient).generateTestCaseDrafts(captor.capture());
         assertThat(captor.getValue().apis()).hasSize(1);
         assertThat(captor.getValue().apis().get(0).apiId()).isEqualTo("2059");
-        assertThat(captor.getValue().apis().get(0).endpoint_id()).isEqualTo("POST:/orders");
+        assertThat(captor.getValue().apis().get(0).requestSchema().get("type").asText()).isEqualTo("object");
+        assertThat(captor.getValue().apis().get(0).responseSchema().get("status").asInt()).isEqualTo(201);
     }
 
     @Test
-    void generateDraftsRetriesAiEmptyGenerationBadRequest() {
+    void generateDraftsAcceptsEmptyDraftsResponse() {
         App app = app(41L);
         TestGeneration generation = generation(57L, app);
         ApiEndpoint endpoint = endpoint(2059L, app);
@@ -79,17 +77,12 @@ class WebClientAiTestGenerationGatewayTest {
         when(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(List.of(2059L)))
                 .thenReturn(List.of());
         when(aiClient.generateTestCaseDrafts(any(TestCaseGeneratorRequest.class)))
-                .thenThrow(new ApiException(
-                        ErrorCode.EXTERNAL_SERVICE_ERROR,
-                        "AI server request failed. path=/api/v1/agents/testcase/generate, status=400, body={\"detail\":\"No test cases generated. Please retry.\"}"
-                ))
-                .thenReturn(response("POST:/orders"));
+                .thenReturn(new TestCaseGeneratorResponse("req-1", "57", List.of()));
 
         List<AiGeneratedDraftCommand> commands = gateway().generateDrafts(generation, List.of(2059L), null);
 
-        assertThat(commands).hasSize(1);
-        assertThat(commands.get(0).apiId()).isEqualTo(2059L);
-        verify(aiClient, times(2)).generateTestCaseDrafts(any(TestCaseGeneratorRequest.class));
+        assertThat(commands).isEmpty();
+        verify(aiClient).generateTestCaseDrafts(any(TestCaseGeneratorRequest.class));
     }
 
     private WebClientAiTestGenerationGateway gateway() {

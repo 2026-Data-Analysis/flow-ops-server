@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
-import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
@@ -16,7 +15,6 @@ import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.ExistingTestCasePayload;
-import flowops.integration.ai.AiAgentContracts.FailureContextPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
@@ -44,7 +42,6 @@ import org.springframework.stereotype.Component;
 public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway {
 
     private static final String AGENT = "TEST_CASE_GENERATOR";
-    private static final int MAX_GENERATION_RETRIES = 2;
 
     private final AiClient aiClient;
     private final ApiEndpointService apiEndpointService;
@@ -100,7 +97,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         String.valueOf(generation.getId()),
                         "SELECTED_APIS",
                         resolveTestLevel(generation, sourceEnvironment),
-                        toDouble(generation.getCurrentCoverage()),
+                        toCoverageRatio(generation.getCurrentCoverage()),
                         resolveTargetCoverage(generation),
                         generation.getContextSummary()
                 ),
@@ -111,7 +108,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         log.debug("AI test case generator request payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(request));
-        TestCaseGeneratorResponse response = generateTestCaseDraftsWithRetry(generation.getId(), request);
+        TestCaseGeneratorResponse response = generateTestCaseDrafts(request);
         log.debug("AI test case generator response payload. generationId={}, payload={}",
                 generation.getId(),
                 toJsonForLog(response));
@@ -140,76 +137,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
 
     @Override
     public List<AiGeneratedDraftCommand> generateDraftsFromFailure(TestGeneration generation, Execution execution, ExecutionStepLog failedLog) {
-        log.info("Calling AI failure test generator. generationId={}, executionId={}, failedLogId={}",
-                generation.getId(),
-                execution.getId(),
-                failedLog.getId());
-        ApiEndpoint endpoint = resolveEndpoint(failedLog);
-        String apiId = String.valueOf(endpoint.getId());
-        String endpointId = endpointId(endpoint);
-        Map<String, Long> responseApiIdToSourceApiId = Map.of(
-                apiId, endpoint.getId(),
-                endpointId, endpoint.getId()
-        );
-        ApiInventory inventory = failedLog.getTestCase() == null ? null : failedLog.getTestCase().getApiInventory();
-
-        List<TestCaseApiPayload> apis = List.of(toTestCaseApiPayload(apiId, endpoint, inventory));
-        List<ExistingTestCasePayload> existingTestCases = existingTestCases(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)));
-        TestCaseGeneratorRequest request = new TestCaseGeneratorRequest(
-                AGENT,
-                UUID.randomUUID().toString(),
-                generation.getRequestedBy(),
-                new ProjectPayload(resolveProjectId(List.of(new ApiSelection(endpoint.getId(), endpoint, inventory)), generation.getApp().getId()),
-                        String.valueOf(generation.getApp().getId()),
-                        generation.getApp().getName()),
-                toEnvironmentPayload(generation, execution.getEnvironment()),
-                new MetadataPayload("ko", LocalDateTime.now(), "INTERNAL"),
-                new TestGenerationContext(
-                        String.valueOf(generation.getId()),
-                        "FROM_FAILURE",
-                        resolveTestLevel(generation, execution.getEnvironment()),
-                        toDouble(generation.getCurrentCoverage()),
-                        resolveTargetCoverage(generation),
-                        generation.getContextSummary()
-                ),
-                apis,
-                existingTestCases,
-                new FailureContextPayload(
-                        execution.getId(),
-                        failedLog.getId(),
-                        failedLog.getResponseCode(),
-                        failedLog.getRequestBody(),
-                        failedLog.getResponseBody(),
-                        failedLog.getErrorMessage(),
-                        expectedBehavior(failedLog),
-                        actualBehavior(failedLog)
-                )
-        );
-        log.debug("AI failure test generator request payload. generationId={}, payload={}",
-                generation.getId(),
-                toJsonForLog(request));
-        TestCaseGeneratorResponse response = generateTestCaseDraftsWithRetry(generation.getId(), request);
-        log.debug("AI failure test generator response payload. generationId={}, payload={}",
-                generation.getId(),
-                toJsonForLog(response));
-
-        List<AiGeneratedDraftCommand> commands = toCommands(response, responseApiIdToSourceApiId);
-        if (commands.isEmpty()) {
-            log.warn("AI failure test generator returned 0 drafts. generationId={}, executionId={}, failedLogId={}, responseRequestId={}, responseDraftsNull={}, apiSummaries={}, existingTestCaseCount={}, failureStatusCode={}, failureErrorPresent={}",
-                    generation.getId(),
-                    execution.getId(),
-                    failedLog.getId(),
-                    response == null ? "null" : response.requestId(),
-                    response == null || response.drafts() == null,
-                    summarizeApis(apis),
-                    existingTestCases.size(),
-                    failedLog.getResponseCode(),
-                    failedLog.getErrorMessage() != null && !failedLog.getErrorMessage().isBlank());
-        }
-        log.info("AI failure test generator completed. generationId={}, draftCount={}",
-                generation.getId(),
-                commands.size());
-        return commands;
+        throw new ApiException(ErrorCode.INVALID_INPUT, "FROM_FAILURE mode is not yet supported.");
     }
 
     private ApiSelection resolveSelection(Long apiId, App app) {
@@ -225,7 +153,6 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
         return new TestCaseApiPayload(
                 apiId,           // apiId
-                endpointId(endpoint),
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
@@ -236,50 +163,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         );
     }
 
-    private TestCaseGeneratorResponse generateTestCaseDraftsWithRetry(Long generationId, TestCaseGeneratorRequest request) {
-        ApiException retryableException = null;
-        TestCaseGeneratorResponse response = null;
-        for (int attempt = 0; attempt <= MAX_GENERATION_RETRIES; attempt++) {
-            try {
-                response = aiClient.generateTestCaseDrafts(request);
-                if (!isEmpty(response)) {
-                    return response;
-                }
-                if (attempt < MAX_GENERATION_RETRIES) {
-                    log.warn("AI test case generator returned empty drafts, retrying. generationId={}, requestId={}, attempt={}",
-                            generationId,
-                            request.requestId(),
-                            attempt + 1);
-                }
-            } catch (ApiException exception) {
-                if (!isRetryableEmptyGeneration(exception) || attempt == MAX_GENERATION_RETRIES) {
-                    throw exception;
-                }
-                retryableException = exception;
-                log.warn("AI test case generator returned retryable empty-generation error, retrying. generationId={}, requestId={}, attempt={}, error={}",
-                        generationId,
-                        request.requestId(),
-                        attempt + 1,
-                        compact(exception.getMessage()));
-            }
-        }
-        if (retryableException != null) {
-            throw retryableException;
-        }
-        return response;
-    }
-
-    private boolean isEmpty(TestCaseGeneratorResponse response) {
-        return response == null
-                || response.drafts() == null
-                || response.drafts().isEmpty();
-    }
-
-    private boolean isRetryableEmptyGeneration(ApiException exception) {
-        String message = exception.getMessage();
-        return message != null
-                && (message.contains("No test cases generated")
-                || message.contains("Please retry"));
+    private TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request) {
+        return aiClient.generateTestCaseDrafts(request);
     }
 
     private List<ExistingTestCasePayload> existingTestCases(List<ApiSelection> selections) {
@@ -349,49 +234,6 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 .toList();
     }
 
-    private ApiEndpoint resolveEndpoint(ExecutionStepLog failedLog) {
-        if (failedLog.getTestCase() != null) {
-            return failedLog.getTestCase().getApiEndpoint();
-        }
-        if (failedLog.getScenarioStep() != null) {
-            return failedLog.getScenarioStep().getApiEndpoint();
-        }
-        return apiEndpointService.findFirstByMethodAndPath(ApiMethod.valueOf(failedLog.getMethod()), failedLog.getPath());
-    }
-
-    private String expectedBehavior(ExecutionStepLog failedLog) {
-        if (failedLog.getTestCase() != null && failedLog.getTestCase().getExpectedSpec() != null) {
-            return failedLog.getTestCase().getExpectedSpec();
-        }
-        if (failedLog.getScenarioStep() != null && failedLog.getScenarioStep().getValidationRules() != null) {
-            return failedLog.getScenarioStep().getValidationRules();
-        }
-        return "{\"status\":200}";
-    }
-
-    private String actualBehavior(ExecutionStepLog failedLog) {
-        return """
-                {
-                  "statusCode": %s,
-                  "responseBody": %s
-                }
-                """.formatted(
-                failedLog.getResponseCode() == null ? "null" : failedLog.getResponseCode(),
-                toJsonString(failedLog.getResponseBody())
-        ).trim();
-    }
-
-    private String toJsonString(String value) {
-        if (value == null) {
-            return "null";
-        }
-        return "\"" + value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n") + "\"";
-    }
-
     private EnvironmentPayload toEnvironmentPayload(TestGeneration generation, Environment sourceEnvironment) {
         Environment environment = sourceEnvironment == null ? generation.getEnvironment() : sourceEnvironment;
         if (environment == null) {
@@ -412,11 +254,11 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     }
 
     private Double resolveTargetCoverage(TestGeneration generation) {
-        Double currentCoverage = toDouble(generation.getCurrentCoverage());
+        Double currentCoverage = toCoverageRatio(generation.getCurrentCoverage());
         if (currentCoverage == null) {
-            return 100.0;
+            return 0.8;
         }
-        return Math.min(100.0, currentCoverage + 10.0);
+        return Math.min(1.0, currentCoverage + 0.1);
     }
 
     private String resolveTestLevel(TestGeneration generation, Environment sourceEnvironment) {
@@ -479,15 +321,23 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         return value == null ? null : value.doubleValue();
     }
 
+    private Double toCoverageRatio(java.math.BigDecimal value) {
+        Double coverage = toDouble(value);
+        if (coverage == null) {
+            return null;
+        }
+        return coverage > 1.0 ? coverage / 100.0 : coverage;
+    }
+
     private List<String> summarizeApis(List<TestCaseApiPayload> apis) {
         return apis.stream()
                 .map(api -> "%s %s apiId=%s endpointId=%s requestSchema=%s responseSchema=%s authRequired=%s deprecated=%s".formatted(
                         api.method(),
                         api.path(),
                         api.apiId(),
-                        api.endpoint_id(),
-                        hasMeaningfulJson(api.request_body_schema()),
-                        hasMeaningfulJson(api.response_schema()),
+                        endpointIdFromApi(api),
+                        hasMeaningfulJson(api.requestSchema()),
+                        hasMeaningfulJson(api.responseSchema()),
                         api.authRequired(),
                         api.deprecated()
                 ))
@@ -501,6 +351,10 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 && !(value.isObject() && value.isEmpty())
                 && !(value.isArray() && value.isEmpty())
                 && !(value.isTextual() && value.asText().isBlank());
+    }
+
+    private String endpointIdFromApi(TestCaseApiPayload api) {
+        return api.method() + ":" + api.path();
     }
 
     private String toJsonForLog(Object value) {

@@ -1,5 +1,6 @@
 package flowops.integration.ai;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -80,15 +81,11 @@ public final class AiAgentContracts {
     @Schema(description = "Test case generator API payload")
     public record TestCaseApiPayload(
             String apiId,
-            @JsonProperty("endpoint_id")
-            String endpoint_id,
             String method,
             String path,
             String domainTag,
-            @JsonProperty("request_body_schema")
-            JsonNode request_body_schema,
-            @JsonProperty("response_schema")
-            JsonNode response_schema,
+            JsonNode requestSchema,
+            JsonNode responseSchema,
             Boolean authRequired,
             Boolean deprecated
     ) {
@@ -108,6 +105,7 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "테스트 케이스 생성 AI 에이전트 요청")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record TestCaseGeneratorRequest(
             String agent,
             String requestId,
@@ -123,6 +121,7 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "테스트 케이스 생성 AI 에이전트가 반환한 초안")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record TestCaseDraftPayload(
             String apiId,
             @JsonProperty("endpoint_id")
@@ -143,6 +142,7 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "테스트 케이스 생성 AI 에이전트 응답")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record TestCaseGeneratorResponse(
             String requestId,
             String generationId,
