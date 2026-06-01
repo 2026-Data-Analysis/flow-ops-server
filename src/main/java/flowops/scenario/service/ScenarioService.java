@@ -259,6 +259,30 @@ public class ScenarioService {
         return recommendations;
     }
 
+    @Transactional(readOnly = true)
+    public ScenarioGenerateResponse generateV2(RecommendScenarioRequest request) {
+        if (request == null || request.appId() == null) {
+            return new ScenarioGenerateResponse(false, null, "INVALID_REQUEST", "appId is required", null);
+        }
+        App app = appService.getApp(request.appId());
+        List<ApiInventory> inventories = scenarioInventories(app.getId(), request.apiIds());
+        List<ApiEndpoint> endpoints = inventories.isEmpty() ? scenarioEndpoints(app.getId(), request.apiIds()) : List.of();
+        List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
+                ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
+                : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
+        String projectId = projectId(app, inventories);
+
+        return aiClient.buildScenario(new ScenarioGenerateRequest(
+                projectId,
+                scenarioMode(request),
+                userIntent(request),
+                new ScenarioApiInventoryPayload(projectId, aiEndpoints),
+                existingTestCases(inventories, endpoints),
+                request.appId() != null ? 3 : 3,
+                8
+        ));
+    }
+
     private List<ScenarioRecommendationResponse> mockRecommendations() {
         return List.of(
                 new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path.", List.of()),

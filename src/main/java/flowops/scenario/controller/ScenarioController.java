@@ -1,6 +1,7 @@
 package flowops.scenario.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.scenario.dto.request.CreateScenarioRequest;
 import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
@@ -39,6 +40,14 @@ public class ScenarioController {
             @RequestBody(required = false) RecommendScenarioRequest request
     ) {
         return ApiResponse.success(scenarioService.recommend(request));
+    }
+
+    @PostMapping("/scenarios/v2/generate")
+    @Operation(summary = "V2 시나리오 생성", description = "AI가 생성한 전체 스텝 명세(userRole, stateCondition, requestSpec 등)를 포함한 시나리오를 반환합니다.")
+    public ApiResponse<ScenarioGenerateResponse> generateScenariosV2(
+            @RequestBody(required = false) RecommendScenarioRequest request
+    ) {
+        return ApiResponse.success(scenarioService.generateV2(request));
     }
 
     @PostMapping("/scenarios")
