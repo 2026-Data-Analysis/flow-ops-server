@@ -453,8 +453,8 @@ public class ScenarioService {
     ) {
         return new ScenarioRecommendationResponse.Step(
                 step.order(),
-                apiIdByEndpointId.get(step.endpoint_id()),
-                step.endpoint_id(),
+                apiIdByEndpointId.get(step.apiId()),
+                step.apiId(),
                 step.name() == null || step.name().isBlank() ? step.description() : step.name(),
                 requestConfig(step),
                 jsonString(step.chained_variables()),
@@ -481,7 +481,7 @@ public class ScenarioService {
                         scenario.name(),
                         scenario.steps() == null ? 0 : scenario.steps().size(),
                         scenario.steps() == null ? List.of() : scenario.steps().stream()
-                                .map(ScenarioStepPayload::endpoint_id)
+                                .map(ScenarioStepPayload::apiId)
                                 .toList()
                 ))
                 .toList();

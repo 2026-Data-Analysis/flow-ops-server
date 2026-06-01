@@ -1,6 +1,7 @@
 package flowops.testcase.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.testcase.dto.request.CreateTestCaseRequest;
 import flowops.testcase.dto.request.UpdateTestCaseActiveRequest;
 import flowops.testcase.dto.request.UpdateTestCaseRequest;
 import flowops.testcase.dto.response.TestCaseDetailResponse;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,6 +30,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class TestCaseController {
 
     private final TestCaseService testCaseService;
+
+    @PostMapping("/apps/{appId}/test-cases")
+    @Operation(summary = "테스트 케이스 생성", description = "앱에 새로운 테스트 케이스를 생성합니다.")
+    public ApiResponse<TestCaseDetailResponse> createTestCase(
+            @PathVariable Long appId,
+            @Valid @RequestBody CreateTestCaseRequest request
+    ) {
+        return ApiResponse.success(testCaseService.create(appId, request));
+    }
 
     @GetMapping("/apps/{appId}/test-cases")
     @Operation(summary = "앱별 테스트 케이스 목록 조회", description = "앱에 속한 활성 테스트 케이스 목록을 도메인, 메서드별로 필터링하여 조회합니다.")
