@@ -6,6 +6,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeRequest;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeResponse;
 import flowops.integration.ai.AiAgentContracts.OrchestratorChatRequest;
 import flowops.integration.ai.AiAgentContracts.OrchestratorChatResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
@@ -77,5 +79,13 @@ public class AiAgentController {
             @Valid @RequestBody OrchestratorChatRequest request
     ) {
         return ApiResponse.success(aiClient.chatWithOrchestrator(request));
+    }
+
+    @PostMapping("/incidents/analyze")
+    @Operation(summary = "Incident 분석", description = "서비스 장애 로그와 컨텍스트를 분석하여 원인 진단 및 장애 보고서를 생성합니다.")
+    public ApiResponse<IncidentAnalyzeResponse> analyzeIncident(
+            @Valid @RequestBody IncidentAnalyzeRequest request
+    ) {
+        return ApiResponse.success(aiClient.analyzeIncident(request));
     }
 }

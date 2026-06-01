@@ -12,6 +12,8 @@ import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeRequest;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeResponse;
 import flowops.integration.ai.AiAgentContracts.OrchestratorChatRequest;
 import flowops.integration.ai.AiAgentContracts.OrchestratorChatResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
@@ -41,4 +43,6 @@ public interface AiClient {
     TestStrategyClassifierResponse classifyTestStrategy(TestStrategyClassifierRequest request);
 
     OrchestratorChatResponse chatWithOrchestrator(OrchestratorChatRequest request);
+
+    IncidentAnalyzeResponse analyzeIncident(IncidentAnalyzeRequest request);
 }

@@ -576,4 +576,87 @@ public final class AiAgentContracts {
             String error_message
     ) {
     }
+
+    @Schema(description = "Incident 분석 로그 엔트리")
+    public record IncidentLogEntryPayload(
+            String timestamp,
+            String level,
+            String message,
+            String logger,
+            @JsonProperty("stack_trace")
+            String stack_trace,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            com.fasterxml.jackson.databind.JsonNode extra
+    ) {
+    }
+
+    @Schema(description = "Incident 분석 실패 컨텍스트")
+    public record IncidentFailureContextPayload(
+            @JsonProperty("test_case_id")
+            String test_case_id,
+            String endpoint,
+            @JsonProperty("expected_status")
+            Integer expected_status,
+            @JsonProperty("actual_status")
+            Integer actual_status,
+            @JsonProperty("request_body")
+            com.fasterxml.jackson.databind.JsonNode request_body,
+            @JsonProperty("response_body")
+            com.fasterxml.jackson.databind.JsonNode response_body,
+            @JsonProperty("error_message")
+            String error_message
+    ) {
+    }
+
+    @Schema(description = "Incident 분석 AI 에이전트 요청")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record IncidentAnalyzeRequest(
+            @JsonProperty("project_id")
+            String project_id,
+            @JsonProperty("service_name")
+            String service_name,
+            @JsonProperty("occurred_at")
+            String occurred_at,
+            @JsonProperty("raw_log")
+            String raw_log,
+            @JsonProperty("log_entries")
+            java.util.List<IncidentLogEntryPayload> log_entries,
+            @JsonProperty("failure_context")
+            IncidentFailureContextPayload failure_context
+    ) {
+    }
+
+    @Schema(description = "Incident 분석 원인")
+    public record IncidentRootCausePayload(
+            String summary,
+            String severity,
+            @JsonProperty("suggested_fix")
+            String suggested_fix,
+            java.util.List<String> evidence
+    ) {
+    }
+
+    @Schema(description = "Incident 분석 데이터")
+    public record IncidentAnalyzeDataPayload(
+            @JsonProperty("root_causes")
+            java.util.List<IncidentRootCausePayload> root_causes,
+            @JsonProperty("internal_report")
+            String internal_report,
+            @JsonProperty("external_notice")
+            String external_notice
+    ) {
+    }
+
+    @Schema(description = "Incident 분석 AI 에이전트 응답")
+    public record IncidentAnalyzeResponse(
+            boolean success,
+            IncidentAnalyzeDataPayload data,
+            @JsonProperty("error_code")
+            String error_code,
+            @JsonProperty("error_message")
+            String error_message,
+            @JsonProperty("trace_id")
+            String trace_id
+    ) {
+    }
 }
