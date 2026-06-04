@@ -83,12 +83,14 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode(request.tearDownMode()))
                 .createdBy(request.createdBy())
                 .createdAt(LocalDateTime.now())
                 .build());
 
         execution.markRunning();
         List<ExecutionStepLog> logs = executeTarget(execution);
+        logs = refreshExecutionLogs(execution, logs);
         completeExecution(execution, logs);
         return toDetail(execution, logs);
     }
@@ -119,12 +121,14 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode(request.tearDownMode()))
                 .createdBy(request.createdBy())
                 .createdAt(LocalDateTime.now())
                 .build());
 
         execution.markRunning();
         List<ExecutionStepLog> logs = httpExecutionEngine.executeApiSelection(execution, request.apiIds(), executionTestLevel);
+        logs = refreshExecutionLogs(execution, logs);
         completeExecution(execution, logs);
         return toDetail(execution, logs);
     }
@@ -152,6 +156,7 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode(request.tearDownMode()))
                 .createdBy(request.createdBy())
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -160,6 +165,7 @@ public class RunTestService {
         List<ExecutionStepLog> logs = selectedTestCases.stream()
                 .map(testCase -> httpExecutionEngine.executeTestCase(execution, testCase))
                 .toList();
+        logs = refreshExecutionLogs(execution, logs);
         completeExecution(execution, logs);
         return toDetail(execution, logs);
     }
@@ -189,7 +195,8 @@ public class RunTestService {
                 previous.getTriggerSource(),
                 previous.getExecutionMode(),
                 previous.getTestLevel(),
-                previous.getCreatedBy()
+                previous.getCreatedBy(),
+                previous.isTearDownMode()
         ));
     }
 
@@ -210,6 +217,7 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(previous.isTearDownMode())
                 .createdBy(previous.getCreatedBy())
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -227,6 +235,7 @@ public class RunTestService {
             }
         }
 
+        rerunLogs = refreshExecutionLogs(rerun, rerunLogs);
         completeExecution(rerun, rerunLogs);
         return toDetail(rerun, rerunLogs);
     }
@@ -260,6 +269,7 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode(request.tearDownMode()))
                 .createdBy(request.createdBy())
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -267,8 +277,13 @@ public class RunTestService {
         execution.markRunning();
         List<ExecutionStepLog> logs = new ArrayList<>();
         for (Long scenarioId : ids) {
+            scenarioService.getScenario(scenarioId);
+            if (httpExecutionEngine.countScenarioSteps(scenarioId) == 0) {
+                throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario has no executable steps.");
+            }
             logs.addAll(httpExecutionEngine.executeScenario(execution, scenarioId));
         }
+        logs = refreshExecutionLogs(execution, logs);
         completeExecution(execution, logs);
         return toDetail(execution, logs);
     }
@@ -304,6 +319,7 @@ public class RunTestService {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode(request.tearDownMode()))
                 .createdBy(request.createdBy())
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -312,6 +328,7 @@ public class RunTestService {
         List<ExecutionStepLog> logs = testCases.stream()
                 .map(testCase -> httpExecutionEngine.executeTestCase(execution, testCase))
                 .toList();
+        logs = refreshExecutionLogs(execution, logs);
         completeExecution(execution, logs);
         return toDetail(execution, logs);
     }
@@ -331,6 +348,13 @@ public class RunTestService {
 
     private ExecutionDetailResponse toDetail(Execution execution, List<ExecutionStepLog> logs) {
         return ExecutionDetailResponse.of(execution, logs, logs.stream().map(ExecutionStepLogResponse::from).toList());
+    }
+
+    private List<ExecutionStepLog> refreshExecutionLogs(Execution execution, List<ExecutionStepLog> fallbackLogs) {
+        if (execution.getId() == null) {
+            return fallbackLogs;
+        }
+        return executionStepLogRepository.findByExecutionIdOrderByCreatedAtAsc(execution.getId());
     }
 
     private void completeExecution(Execution execution, List<ExecutionStepLog> logs) {
@@ -357,6 +381,9 @@ public class RunTestService {
             return List.of(httpExecutionEngine.executeTestCase(execution, testCase));
         }
         Scenario scenario = scenarioService.getScenario(execution.getTargetId());
+        if (httpExecutionEngine.countScenarioSteps(scenario.getId()) == 0) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario has no executable steps.");
+        }
         return httpExecutionEngine.executeScenario(execution, scenario.getId());
     }
 
@@ -389,6 +416,10 @@ public class RunTestService {
 
     private TestLevel resolveTestLevel(Environment environment, TestLevel requestedTestLevel) {
         return requestedTestLevel == null ? environment.getDefaultTestLevel() : requestedTestLevel;
+    }
+
+    private boolean tearDownMode(Boolean tearDownMode) {
+        return Boolean.TRUE.equals(tearDownMode);
     }
 
     private String resolveExecutionName(ExecutionType executionType, Long targetId) {

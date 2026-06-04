@@ -13,6 +13,8 @@ import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.global.response.PageResponse;
 import flowops.testcase.repository.TestCaseRepository;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -84,6 +86,21 @@ public class ApiEndpointService {
                 ));
     }
 
+    @Transactional(readOnly = true)
+    public Optional<ApiEndpoint> findCleanupEndpoint(ApiEndpoint createdEndpoint) {
+        if (createdEndpoint == null || createdEndpoint.getApp() == null || createdEndpoint.getApp().getId() == null) {
+            return Optional.empty();
+        }
+        String basePath = normalizePath(createdEndpoint.getPath());
+        List<ApiEndpoint> deleteEndpoints = apiEndpointRepository.findByAppIdAndMethod(
+                createdEndpoint.getApp().getId(),
+                ApiMethod.DELETE
+        );
+        return deleteEndpoints.stream()
+                .filter(candidate -> cleanupPathMatches(basePath, candidate.getPath()))
+                .findFirst();
+    }
+
     @Transactional
     public ApiEndpoint findOrCreateFromInventory(App app, ApiInventory inventory) {
         ApiMethod method = ApiMethod.valueOf(inventory.getMethod().name());
@@ -98,5 +115,27 @@ public class ApiEndpointService {
                         .responseSchema(inventory.getResponseSchema())
                         .deprecated(false)
                         .build()));
+    }
+
+    private boolean cleanupPathMatches(String basePath, String deletePath) {
+        String normalizedDeletePath = normalizePath(deletePath);
+        return normalizedDeletePath.startsWith(basePath + "/{")
+                || normalizedDeletePath.startsWith(basePath + "/:")
+                || removePathParams(normalizedDeletePath).equals(basePath);
+    }
+
+    private String normalizePath(String path) {
+        if (path == null || path.isBlank()) {
+            return "/";
+        }
+        String normalized = path.startsWith("/") ? path : "/" + path;
+        if (normalized.length() > 1 && normalized.endsWith("/")) {
+            return normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private String removePathParams(String path) {
+        return path.replaceAll("/\\{[^}/]+}", "").replaceAll("/:[A-Za-z][A-Za-z0-9_]*", "");
     }
 }

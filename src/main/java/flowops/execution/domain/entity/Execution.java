@@ -83,6 +83,9 @@ public class Execution {
     @Column(name = "total_duration_ms")
     private Long totalDurationMs;
 
+    @Column(name = "tear_down_mode", nullable = false)
+    private boolean tearDownMode;
+
     @Column(columnDefinition = "TEXT")
     private String summary;
 
@@ -114,6 +117,7 @@ public class Execution {
             Integer failedCount,
             Long avgDurationMs,
             Long totalDurationMs,
+            boolean tearDownMode,
             String summary,
             String createdBy,
             LocalDateTime startedAt,
@@ -134,6 +138,7 @@ public class Execution {
         this.failedCount = failedCount;
         this.avgDurationMs = avgDurationMs;
         this.totalDurationMs = totalDurationMs;
+        this.tearDownMode = tearDownMode;
         this.summary = summary;
         this.createdBy = createdBy;
         this.startedAt = startedAt;

@@ -28,6 +28,8 @@ public record ExecutionDetailResponse(
         ExecutionTriggerSource triggerSource,
         @Schema(description = "테스트 레벨", example = "REGRESSION")
         TestLevel testLevel,
+        @Schema(description = "테스트 실행 후 생성된 데이터를 삭제하는 tearDown 모드", example = "true")
+        boolean tearDownMode,
         @Schema(description = "실행 상태", example = "PARTIAL_FAILED")
         ExecutionStatus status,
         @Schema(description = "실행 시간", example = "2026-04-12T03:10:00")
@@ -90,6 +92,7 @@ public record ExecutionDetailResponse(
                 execution.getTargetId(),
                 execution.getTriggerSource(),
                 execution.getTestLevel(),
+                execution.isTearDownMode(),
                 execution.getStatus(),
                 ExecutionViewSupport.executedAt(execution, firstLog),
                 ExecutionViewSupport.caseName(execution, firstLog),

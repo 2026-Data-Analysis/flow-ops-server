@@ -24,6 +24,10 @@ import flowops.execution.domain.entity.ExecutionType;
 import flowops.execution.domain.entity.TestValidationResult;
 import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.execution.repository.TestValidationResultRepository;
+import flowops.scenario.domain.entity.Scenario;
+import flowops.scenario.domain.entity.ScenarioSource;
+import flowops.scenario.domain.entity.ScenarioStep;
+import flowops.scenario.domain.entity.ScenarioType;
 import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
@@ -34,6 +38,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,21 +51,26 @@ class HttpExecutionEngineTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private HttpServer server;
     private HttpExecutionEngine engine;
+    private ExecutionStepLogRepository stepLogRepository;
     private TestValidationResultRepository validationResultRepository;
+    private ScenarioStepRepository scenarioStepRepository;
+    private ApiEndpointService apiEndpointService;
 
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
-        ExecutionStepLogRepository stepLogRepository = mock(ExecutionStepLogRepository.class);
+        stepLogRepository = mock(ExecutionStepLogRepository.class);
         validationResultRepository = mock(TestValidationResultRepository.class);
+        scenarioStepRepository = mock(ScenarioStepRepository.class);
+        apiEndpointService = mock(ApiEndpointService.class);
         when(stepLogRepository.save(any(ExecutionStepLog.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(validationResultRepository.save(any(TestValidationResult.class))).thenAnswer(invocation -> invocation.getArgument(0));
         engine = new HttpExecutionEngine(
                 stepLogRepository,
                 validationResultRepository,
-                mock(ScenarioStepRepository.class),
+                scenarioStepRepository,
                 mock(TestCaseRepository.class),
-                mock(ApiEndpointService.class),
+                apiEndpointService,
                 WebClient.builder(),
                 objectMapper
         );
@@ -130,11 +141,133 @@ class HttpExecutionEngineTest {
         assertThat(log.getErrorMessage()).contains("Expected HTTP status 2xx");
     }
 
+    @Test
+    void executeReplacesMissingPathParamWithRunnableSampleValue() {
+        server.createContext("/users/1", exchange -> writeResponse(exchange, 200, "{\"id\":1}"));
+        server.start();
+
+        ExecutionStepLog log = engine.execute(
+                execution(environment("{}")),
+                null,
+                null,
+                api(ApiMethod.GET, "/users/{userId}"),
+                "get user",
+                HttpExecutionEngine.RequestDefinition.empty(objectMapper),
+                HttpExecutionEngine.ExpectedDefinition.responseStatus()
+        );
+
+        assertThat(log.getStatus()).isEqualTo(ExecutionStepStatus.SUCCESS);
+        assertThat(log.getResponseCode()).isEqualTo(200);
+        assertThat(log.getPath()).isEqualTo("/users/1");
+    }
+
+    @Test
+    void executeScenarioChainsExtractedValueIntoLaterPathParam() {
+        server.createContext("/sessions", exchange -> writeResponse(exchange, 200, "{\"sessionId\":42}"));
+        server.createContext("/sessions/42/orders", exchange -> writeResponse(exchange, 201, "{\"ok\":true}"));
+        server.start();
+
+        Scenario scenario = Scenario.builder()
+                .app(App.builder().name("FlowOps").build())
+                .name("session order")
+                .type(ScenarioType.HAPPY_PATH)
+                .source(ScenarioSource.CUSTOM)
+                .build();
+        ScenarioStep first = ScenarioStep.builder()
+                .scenario(scenario)
+                .stepOrder(1)
+                .apiEndpoint(api(ApiMethod.POST, "/sessions"))
+                .label("create session")
+                .extractRules("{\"name\":\"sessionId\",\"jsonPath\":\"$.sessionId\"}")
+                .validationRules("{\"status\":200}")
+                .build();
+        ScenarioStep second = ScenarioStep.builder()
+                .scenario(scenario)
+                .stepOrder(2)
+                .apiEndpoint(api(ApiMethod.POST, "/sessions/{sessionId}/orders"))
+                .label("create order")
+                .requestConfig("{\"params\":{\"sessionId\":\"{{sessionId}}\"}}")
+                .validationRules("{\"status\":201}")
+                .build();
+        when(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(10L)).thenReturn(List.of(first, second));
+
+        List<ExecutionStepLog> logs = engine.executeScenario(execution(environment("{}")), 10L);
+
+        assertThat(logs).hasSize(2);
+        assertThat(logs).extracting(ExecutionStepLog::getPath)
+                .containsExactly("/sessions", "/sessions/42/orders");
+        assertThat(logs).extracting(ExecutionStepLog::getResponseCode)
+                .containsExactly(200, 201);
+        assertThat(logs).extracting(ExecutionStepLog::getStatus)
+                .containsExactly(ExecutionStepStatus.SUCCESS, ExecutionStepStatus.SUCCESS);
+    }
+
+    @Test
+    void failedConnectionStoresNoResponseInsteadOfSyntheticZeroStatus() {
+        ExecutionStepLog log = engine.execute(
+                execution(environment("{}", "http://localhost:1")),
+                null,
+                null,
+                api(ApiMethod.GET, "/missing"),
+                "missing",
+                HttpExecutionEngine.RequestDefinition.empty(objectMapper),
+                HttpExecutionEngine.ExpectedDefinition.responseStatus()
+        );
+
+        assertThat(log.getStatus()).isEqualTo(ExecutionStepStatus.FAILED);
+        assertThat(log.getResponseCode()).isNull();
+        assertThat(log.getErrorMessage()).contains("no HTTP response");
+    }
+
+    @Test
+    void tearDownModeDeletesCreatedResourceAfterSuccessfulPost() throws Exception {
+        AtomicBoolean deleted = new AtomicBoolean(false);
+        server.createContext("/orders", exchange -> writeResponse(exchange, 201, "{\"id\":9}"));
+        server.createContext("/orders/9", exchange -> {
+            deleted.set(true);
+            writeResponse(exchange, 204, "");
+        });
+        server.start();
+
+        ApiEndpoint createOrder = api(ApiMethod.POST, "/orders");
+        ApiEndpoint deleteOrder = api(ApiMethod.DELETE, "/orders/{orderId}");
+        when(apiEndpointService.findCleanupEndpoint(createOrder)).thenReturn(Optional.of(deleteOrder));
+
+        ExecutionStepLog log = engine.execute(
+                execution(environment("{}"), true),
+                null,
+                null,
+                createOrder,
+                "create order",
+                new HttpExecutionEngine.RequestDefinition(
+                        Map.of(),
+                        Map.of(),
+                        Map.of(),
+                        objectMapper.readTree("{\"item\":\"book\"}"),
+                        objectMapper
+                ),
+                new HttpExecutionEngine.ExpectedDefinition(201, objectMapper.readTree("{\"id\":9}"))
+        );
+
+        assertThat(log.getStatus()).isEqualTo(ExecutionStepStatus.SUCCESS);
+        assertThat(deleted).isTrue();
+        ArgumentCaptor<ExecutionStepLog> captor = ArgumentCaptor.forClass(ExecutionStepLog.class);
+        org.mockito.Mockito.verify(stepLogRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(ExecutionStepLog::getStepName)
+                .containsExactly("create order", "tearDown: create order");
+        assertThat(captor.getAllValues()).extracting(ExecutionStepLog::getPath)
+                .containsExactly("/orders", "/orders/9");
+    }
+
     private Environment environment(String headers) {
+        return environment(headers, "http://localhost:" + server.getAddress().getPort());
+    }
+
+    private Environment environment(String headers, String baseUrl) {
         return Environment.builder()
                 .app(App.builder().name("FlowOps").build())
                 .name("QA")
-                .baseUrl("http://localhost:" + server.getAddress().getPort())
+                .baseUrl(baseUrl)
                 .authType(AuthType.NONE)
                 .headers(headers)
                 .defaultTestLevel(TestLevel.SMOKE)
@@ -143,6 +276,10 @@ class HttpExecutionEngineTest {
     }
 
     private Execution execution(Environment environment) {
+        return execution(environment, false);
+    }
+
+    private Execution execution(Environment environment, boolean tearDownMode) {
         return Execution.builder()
                 .app(environment.getApp())
                 .environment(environment)
@@ -156,6 +293,7 @@ class HttpExecutionEngineTest {
                 .totalCount(0)
                 .passedCount(0)
                 .failedCount(0)
+                .tearDownMode(tearDownMode)
                 .createdBy("tester")
                 .createdAt(LocalDateTime.now())
                 .build();

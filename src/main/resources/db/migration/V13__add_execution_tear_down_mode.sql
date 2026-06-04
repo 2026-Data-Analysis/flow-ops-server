@@ -1,0 +1,2 @@
+ALTER TABLE executions
+    ADD COLUMN tear_down_mode BOOLEAN NOT NULL DEFAULT FALSE;

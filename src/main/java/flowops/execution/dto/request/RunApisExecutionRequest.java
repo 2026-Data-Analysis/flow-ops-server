@@ -31,6 +31,9 @@ public record RunApisExecutionRequest(
 
         @Schema(description = "실행 요청자", example = "qa.engineer@flowops.dev")
         @NotBlank(message = "생성자는 필수입니다.")
-        String createdBy
+        String createdBy,
+
+        @Schema(description = "테스트 실행 후 생성된 데이터를 삭제하는 tearDown 모드", example = "true")
+        Boolean tearDownMode
 ) {
 }

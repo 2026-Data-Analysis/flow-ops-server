@@ -22,8 +22,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -37,6 +41,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class HttpExecutionEngine {
 
     private static final String DEFAULT_BASE_URL = "http://localhost:8080";
+    private static final Pattern BRACE_PATH_PARAM = Pattern.compile("\\{([^}/]+)}");
+    private static final Pattern COLON_PATH_PARAM = Pattern.compile("(?<![A-Za-z0-9]):([A-Za-z][A-Za-z0-9_]*)");
 
     private final ExecutionStepLogRepository executionStepLogRepository;
     private final TestValidationResultRepository testValidationResultRepository;
@@ -74,6 +80,10 @@ public class HttpExecutionEngine {
         );
     }
 
+    public long countScenarioSteps(Long scenarioId) {
+        return scenarioStepRepository.countByScenarioId(scenarioId);
+    }
+
     public List<ExecutionStepLog> executeScenario(Execution execution, Long scenarioId) {
         List<ScenarioStep> steps = scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId);
         Map<String, String> chainedVars = new LinkedHashMap<>();
@@ -85,13 +95,15 @@ public class HttpExecutionEngine {
                             step.getApiEndpoint().getRequestSchema()),
                     chainedVars
             );
+            RequestDefinition requestDefinition = parseRequestDefinition(resolvedConfig)
+                    .withFallbackPathParams(chainedVars);
             ExecutionStepLog log = execute(
                     execution,
                     null,
                     step,
                     step.getApiEndpoint(),
                     step.getLabel(),
-                    parseRequestDefinition(resolvedConfig),
+                    requestDefinition,
                     parseExpectedDefinition(step.getValidationRules())
             );
             logs.add(log);
@@ -163,7 +175,7 @@ public class HttpExecutionEngine {
                 .stepOrder(scenarioStep == null ? null : scenarioStep.getStepOrder())
                 .stepName(stepName)
                 .method(apiEndpoint.getMethod().name())
-                .path(apiEndpoint.getPath())
+                .path(result.requestPath())
                 .status(passed ? ExecutionStepStatus.SUCCESS : ExecutionStepStatus.FAILED)
                 .requestBody(result.requestBody())
                 .responseBody(result.responseBody())
@@ -175,43 +187,134 @@ public class HttpExecutionEngine {
                 .createdAt(startedAt)
                 .build());
         saveValidations(log, validationOutcomes);
+        executeTearDownIfNeeded(execution, apiEndpoint, stepName, requestDefinition, result, endedAt);
         return log;
     }
 
+    private void executeTearDownIfNeeded(
+            Execution execution,
+            ApiEndpoint apiEndpoint,
+            String stepName,
+            RequestDefinition requestDefinition,
+            ActualHttpResult result,
+            LocalDateTime createdAt
+    ) {
+        if (execution == null || !execution.isTearDownMode() || apiEndpoint.getMethod() != flowops.api.domain.entity.ApiMethod.POST) {
+            return;
+        }
+        if (result.statusCode() == null || result.statusCode() < 200 || result.statusCode() >= 300) {
+            return;
+        }
+        String createdId = extractCreatedResourceId(result.responseBody());
+        if (createdId == null || createdId.isBlank()) {
+            saveTearDownFailure(execution, stepName, apiEndpoint.getPath(), "Could not resolve created resource id from response body.", createdAt);
+            return;
+        }
+        ApiEndpoint cleanupEndpoint = apiEndpointService.findCleanupEndpoint(apiEndpoint).orElse(null);
+        if (cleanupEndpoint == null) {
+            saveTearDownFailure(execution, stepName, apiEndpoint.getPath(), "Could not find a matching DELETE endpoint for tearDown.", createdAt);
+            return;
+        }
+
+        RequestDefinition resolvedCreateRequest = requestDefinition.withResolvedPathParams(apiEndpoint.getPath());
+        RequestDefinition cleanupRequest = RequestDefinition.empty(objectMapper)
+                .withFallbackPathParams(resolvedCreateRequest.pathParams())
+                .withFallbackPathParams(pathParamsForCreatedResource(cleanupEndpoint.getPath(), createdId));
+        LocalDateTime startedAt = LocalDateTime.now();
+        ActualHttpResult cleanupResult = callHttp(execution.getEnvironment(), cleanupEndpoint, cleanupRequest);
+        LocalDateTime endedAt = LocalDateTime.now();
+        boolean passed = cleanupResult.statusCode() != null && cleanupResult.statusCode() >= 200 && cleanupResult.statusCode() < 300;
+        ExecutionStepLog cleanupLog = executionStepLogRepository.save(ExecutionStepLog.builder()
+                .execution(execution)
+                .stepName("tearDown: " + stepName)
+                .method(cleanupEndpoint.getMethod().name())
+                .path(cleanupResult.requestPath())
+                .status(passed ? ExecutionStepStatus.SUCCESS : ExecutionStepStatus.FAILED)
+                .requestBody(cleanupResult.requestBody())
+                .responseBody(cleanupResult.responseBody())
+                .responseCode(cleanupResult.statusCode())
+                .durationMs(Duration.between(startedAt, endedAt).toMillis())
+                .errorMessage(passed ? null : tearDownErrorMessage(cleanupResult.statusCode()))
+                .startedAt(startedAt)
+                .endedAt(endedAt)
+                .createdAt(startedAt)
+                .build());
+        saveValidations(cleanupLog, List.of(statusValidation("2xx", cleanupResult.statusCode(), passed)));
+    }
+
+    private void saveTearDownFailure(Execution execution, String stepName, String path, String message, LocalDateTime createdAt) {
+        ExecutionStepLog cleanupLog = executionStepLogRepository.save(ExecutionStepLog.builder()
+                .execution(execution)
+                .stepName("tearDown: " + stepName)
+                .method("DELETE")
+                .path(path)
+                .status(ExecutionStepStatus.FAILED)
+                .responseCode(null)
+                .durationMs(0L)
+                .errorMessage(message)
+                .startedAt(createdAt)
+                .endedAt(createdAt)
+                .createdAt(createdAt)
+                .build());
+        saveValidations(cleanupLog, List.of(new ValidationOutcome(
+                "tearDown",
+                "Created resource can be cleaned up",
+                "NO_CLEANUP",
+                false,
+                message
+        )));
+    }
+
+    private String tearDownErrorMessage(Integer statusCode) {
+        if (statusCode == null) {
+            return "tearDown DELETE did not receive an HTTP response.";
+        }
+        return "tearDown DELETE expected HTTP status 2xx, but received " + statusCode + ".";
+    }
+
     private ActualHttpResult callHttp(Environment environment, ApiEndpoint apiEndpoint, RequestDefinition requestDefinition) {
+        String requestPath = apiEndpoint.getPath();
+        String requestBody = requestDefinition.bodyAsString();
         try {
+            RequestDefinition resolvedDefinition = requestDefinition.withResolvedPathParams(apiEndpoint.getPath());
             URI uri = buildUri(
                     normalizeBaseUrl(environment == null ? null : environment.getBaseUrl()),
-                    applyPathParams(apiEndpoint.getPath(), requestDefinition.pathParams()),
-                    requestDefinition.queryParams()
+                    applyPathParams(apiEndpoint.getPath(), resolvedDefinition.pathParams()),
+                    resolvedDefinition.queryParams()
             );
+            requestPath = requestPathWithQuery(uri);
+            requestBody = resolvedDefinition.bodyAsString();
             WebClient.RequestBodySpec request = webClientBuilder.build()
                     .method(HttpMethod.valueOf(apiEndpoint.getMethod().name()))
                     .uri(uri)
                     .headers(headers -> {
                         headers.setAll(parseStringMap(environment == null ? null : environment.getHeaders()));
-                        headers.setAll(requestDefinition.headers());
-                        if (requestDefinition.hasBody()) {
+                        headers.setAll(resolvedDefinition.headers());
+                        if (resolvedDefinition.hasBody()) {
                             headers.setContentType(MediaType.APPLICATION_JSON);
                         }
                     });
 
-            RequestHeadersSpec<?> requestSpec = requestDefinition.hasBody()
-                    ? request.bodyValue(requestDefinition.bodyAsString())
+            RequestHeadersSpec<?> requestSpec = resolvedDefinition.hasBody()
+                    ? request.bodyValue(requestBody)
                     : request;
 
+            String finalRequestPath = requestPath;
+            String finalRequestBody = requestBody;
             return requestSpec.exchangeToMono(response -> response.bodyToMono(String.class)
                             .defaultIfEmpty("")
                             .map(body -> new ActualHttpResult(
                                     response.statusCode().value(),
-                                    requestDefinition.bodyAsString(),
+                                    finalRequestPath,
+                                    finalRequestBody,
                                     body
                             )))
                     .block();
         } catch (Exception exception) {
             return new ActualHttpResult(
-                    0,
-                    requestDefinition.bodyAsString(),
+                    null,
+                    requestPath,
+                    requestBody,
                     "{\"error\":\"" + escapeJson(exception.getMessage()) + "\"}"
             );
         }
@@ -224,6 +327,14 @@ public class HttpExecutionEngine {
         return builder.build(true).toUri();
     }
 
+    private String requestPathWithQuery(URI uri) {
+        String path = uri.getRawPath();
+        if (uri.getRawQuery() == null || uri.getRawQuery().isBlank()) {
+            return path;
+        }
+        return path + "?" + uri.getRawQuery();
+    }
+
     private String applyPathParams(String path, Map<String, String> pathParams) {
         String resolvedPath = path;
         for (Map.Entry<String, String> entry : pathParams.entrySet()) {
@@ -232,6 +343,36 @@ public class HttpExecutionEngine {
                     .replace(":" + entry.getKey(), entry.getValue());
         }
         return resolvedPath;
+    }
+
+    private static Set<String> pathParamNames(String path) {
+        if (path == null || path.isBlank()) {
+            return Set.of();
+        }
+        Set<String> names = new LinkedHashSet<>();
+        Matcher braceMatcher = BRACE_PATH_PARAM.matcher(path);
+        while (braceMatcher.find()) {
+            names.add(braceMatcher.group(1));
+        }
+        Matcher colonMatcher = COLON_PATH_PARAM.matcher(path);
+        while (colonMatcher.find()) {
+            names.add(colonMatcher.group(1));
+        }
+        return names;
+    }
+
+    private static String samplePathParamValue(String name) {
+        String normalized = name == null ? "" : name.toLowerCase();
+        if (normalized.contains("uuid")) {
+            return "00000000-0000-0000-0000-000000000001";
+        }
+        if (normalized.endsWith("id") || normalized.contains("_id") || normalized.contains("-id")) {
+            return "1";
+        }
+        if (normalized.contains("date")) {
+            return "2026-01-01";
+        }
+        return "sample";
     }
 
     private String normalizeBaseUrl(String baseUrl) {
@@ -262,8 +403,8 @@ public class HttpExecutionEngine {
         }
         return new RequestDefinition(
                 parseStringMap(firstPresent(root, "headers")),
-                parseStringMap(firstPresent(root, "pathParams", "path")),
-                parseStringMap(firstPresent(root, "queryParams", "query", "params")),
+                parseStringMap(firstPresent(root, "pathParams", "pathParameters", "path_params", "path")),
+                parseStringMap(firstPresent(root, "queryParams", "queryParameters", "query_params", "query", "params")),
                 body == null || body.isNull() || body.isMissingNode() ? null : body,
                 objectMapper
         );
@@ -329,6 +470,70 @@ public class HttpExecutionEngine {
         JsonNode node = root.at(pointer);
         if (node.isMissingNode() || node.isNull()) return null;
         return node.isTextual() ? node.asText() : node.toString();
+    }
+
+    private String extractCreatedResourceId(String responseBody) {
+        JsonNode response = parseResponseBody(responseBody);
+        return findResourceId(response);
+    }
+
+    private String findResourceId(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.isObject()) {
+            JsonNode id = node.get("id");
+            if (isScalarValue(id)) {
+                return scalarValue(id);
+            }
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (isIdField(field.getKey()) && isScalarValue(field.getValue())) {
+                    return scalarValue(field.getValue());
+                }
+            }
+            fields = node.fields();
+            while (fields.hasNext()) {
+                String nested = findResourceId(fields.next().getValue());
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String nested = findResourceId(item);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean isIdField(String fieldName) {
+        if (fieldName == null) {
+            return false;
+        }
+        String normalized = fieldName.toLowerCase();
+        return "id".equals(normalized) || normalized.endsWith("id") || normalized.endsWith("_id") || normalized.endsWith("-id");
+    }
+
+    private boolean isScalarValue(JsonNode node) {
+        return node != null && (node.isTextual() || node.isNumber() || node.isBoolean());
+    }
+
+    private String scalarValue(JsonNode node) {
+        return node.isTextual() ? node.asText() : node.asText();
+    }
+
+    private Map<String, String> pathParamsForCreatedResource(String cleanupPath, String createdId) {
+        Map<String, String> pathParams = new LinkedHashMap<>();
+        for (String name : pathParamNames(cleanupPath)) {
+            pathParams.put(name, createdId);
+        }
+        return pathParams;
     }
 
     private String applyChainedVars(String template, Map<String, String> vars) {
@@ -405,7 +610,7 @@ public class HttpExecutionEngine {
 
     private List<ValidationOutcome> validateExpectedDefinition(
             ExpectedDefinition expectedDefinition,
-            int actualStatus,
+            Integer actualStatus,
             String responseBody
     ) {
         List<ValidationOutcome> outcomes = new ArrayList<>();
@@ -413,14 +618,14 @@ public class HttpExecutionEngine {
             outcomes.add(statusValidation(
                     String.valueOf(expectedDefinition.exactStatus()),
                     actualStatus,
-                    actualStatus == expectedDefinition.exactStatus()
+                    expectedDefinition.exactStatus().equals(actualStatus)
             ));
         }
         if (hasExpectedBody(expectedDefinition)) {
             outcomes.add(bodyValidation(responseBody, expectedDefinition.expectedBody()));
         }
         if (outcomes.isEmpty()) {
-            boolean passed = actualStatus >= 200 && actualStatus < 300;
+            boolean passed = actualStatus != null && actualStatus >= 200 && actualStatus < 300;
             outcomes.add(statusValidation("2xx", actualStatus, passed));
         }
         return outcomes;
@@ -431,11 +636,14 @@ public class HttpExecutionEngine {
         return expectedBody != null && !expectedBody.isNull() && !expectedBody.isMissingNode();
     }
 
-    private ValidationOutcome statusValidation(String expectedValue, int actualStatus, boolean passed) {
+    private ValidationOutcome statusValidation(String expectedValue, Integer actualStatus, boolean passed) {
+        String actualValue = actualStatus == null ? "NO_RESPONSE" : String.valueOf(actualStatus);
         String message = passed
                 ? "Response status matched the expected criteria."
+                : actualStatus == null
+                ? "Expected HTTP status " + expectedValue + ", but no HTTP response was received."
                 : "Expected HTTP status " + expectedValue + ", but received " + actualStatus + ".";
-        return new ValidationOutcome("HTTP status", expectedValue, String.valueOf(actualStatus), passed, message);
+        return new ValidationOutcome("HTTP status", expectedValue, actualValue, passed, message);
     }
 
     private ValidationOutcome bodyValidation(String responseBody, JsonNode expectedBody) {
@@ -517,6 +725,37 @@ public class HttpExecutionEngine {
             return new RequestDefinition(Map.of(), Map.of(), Map.of(), null, objectMapper);
         }
 
+        RequestDefinition withFallbackPathParams(Map<String, String> fallbackPathParams) {
+            if (fallbackPathParams == null || fallbackPathParams.isEmpty()) {
+                return this;
+            }
+            Map<String, String> resolvedPathParams = new LinkedHashMap<>(fallbackPathParams);
+            resolvedPathParams.putAll(pathParams);
+            return new RequestDefinition(headers, resolvedPathParams, queryParams, body, objectMapper);
+        }
+
+        RequestDefinition withResolvedPathParams(String endpointPath) {
+            Set<String> requiredPathParams = pathParamNames(endpointPath);
+            if (requiredPathParams.isEmpty()) {
+                return this;
+            }
+            Map<String, String> resolvedPathParams = new LinkedHashMap<>(pathParams);
+            Map<String, String> resolvedQueryParams = new LinkedHashMap<>(queryParams);
+            for (String name : requiredPathParams) {
+                String value = resolvedPathParams.get(name);
+                if ((value == null || value.isBlank()) && resolvedQueryParams.containsKey(name)) {
+                    value = resolvedQueryParams.remove(name);
+                } else {
+                    resolvedQueryParams.remove(name);
+                }
+                if (value == null || value.isBlank()) {
+                    value = samplePathParamValue(name);
+                }
+                resolvedPathParams.put(name, value);
+            }
+            return new RequestDefinition(headers, resolvedPathParams, resolvedQueryParams, body, objectMapper);
+        }
+
         boolean hasBody() {
             return body != null && !body.isNull() && !body.isMissingNode();
         }
@@ -555,7 +794,8 @@ public class HttpExecutionEngine {
     }
 
     private record ActualHttpResult(
-            int statusCode,
+            Integer statusCode,
+            String requestPath,
             String requestBody,
             String responseBody
     ) {

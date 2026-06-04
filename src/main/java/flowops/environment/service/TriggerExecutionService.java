@@ -40,7 +40,8 @@ public class TriggerExecutionService {
                 apiIds,
                 rule.getExecutionMode(),
                 null,
-                "trigger:schedule:" + rule.getId()
+                "trigger:schedule:" + rule.getId(),
+                false
         ));
         rule.markTriggered(LocalDateTime.now());
     }
