@@ -144,9 +144,73 @@ public class OpenApiSpecParser {
 
     private String responseSchema(JsonNode operation) {
         JsonNode responses = operation.path("responses");
-        JsonNode successResponse = firstPresent(responses, "200", "201", "202", "204", "default");
-        JsonNode schema = firstJsonContentSchema(successResponse);
-        return schema == null ? null : writeJson(schema);
+        if (!responses.isObject()) {
+            return null;
+        }
+
+        Map<String, Object> responseSummary = new LinkedHashMap<>();
+        List<Integer> expectedStatusCodes = new ArrayList<>();
+        List<Integer> errorStatusCodes = new ArrayList<>();
+        List<Map<String, Object>> responseItems = new ArrayList<>();
+
+        Iterator<Map.Entry<String, JsonNode>> fields = responses.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            String statusCode = field.getKey();
+            JsonNode response = field.getValue();
+            Integer numericStatus = parseStatusCode(statusCode);
+            if (numericStatus != null && numericStatus >= 200 && numericStatus < 300) {
+                expectedStatusCodes.add(numericStatus);
+            } else if (numericStatus != null && numericStatus >= 400) {
+                errorStatusCodes.add(numericStatus);
+            }
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("statusCode", statusCode);
+            item.put("category", responseCategory(numericStatus, statusCode));
+            String description = textOrNull(response, "description");
+            if (description != null) {
+                item.put("description", description);
+            }
+            JsonNode schema = firstJsonContentSchema(response);
+            if (schema != null) {
+                item.put("schema", jsonMapper.convertValue(schema, Object.class));
+                item.put("sampleBody", sampleValue(schema));
+            }
+            responseItems.add(item);
+        }
+
+        if (!expectedStatusCodes.isEmpty()) {
+            responseSummary.put("expectedStatusCodes", expectedStatusCodes);
+        }
+        if (!errorStatusCodes.isEmpty()) {
+            responseSummary.put("errorStatusCodes", errorStatusCodes);
+        }
+        if (!responseItems.isEmpty()) {
+            responseSummary.put("responses", responseItems);
+        }
+        return responseSummary.isEmpty() ? null : writeJson(responseSummary);
+    }
+
+    private Integer parseStatusCode(String statusCode) {
+        try {
+            return Integer.valueOf(statusCode);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String responseCategory(Integer numericStatus, String statusCode) {
+        if (numericStatus == null) {
+            return "default".equals(statusCode) ? "DEFAULT" : "UNKNOWN";
+        }
+        if (numericStatus >= 200 && numericStatus < 300) {
+            return "SUCCESS";
+        }
+        if (numericStatus >= 400) {
+            return "ERROR";
+        }
+        return "OTHER";
     }
 
     private void collectParameters(
