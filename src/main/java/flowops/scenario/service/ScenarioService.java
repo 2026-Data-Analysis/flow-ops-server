@@ -12,18 +12,21 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
+import flowops.environment.domain.entity.Environment;
+import flowops.environment.repository.EnvironmentRepository;
 import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
-import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
-import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.MetadataPayload;
+import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
-import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
+import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.domain.entity.ScenarioType;
@@ -38,13 +41,12 @@ import flowops.scenario.dto.response.ScenarioStepResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
-import flowops.testcase.domain.entity.TestCase;
-import flowops.testcase.repository.TestCaseRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,8 +66,8 @@ public class ScenarioService {
     private final AiClient aiClient;
     private final ExternalServiceProperties externalServiceProperties;
     private final ObjectMapper objectMapper;
-    private final TestCaseRepository testCaseRepository;
     private final ExecutionStepLogRepository executionStepLogRepository;
+    private final EnvironmentRepository environmentRepository;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
@@ -202,7 +204,7 @@ public class ScenarioService {
                 inventories.size(),
                 endpoints.size(),
                 aiEndpoints.size(),
-                aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::endpoint_id).toList());
+                aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::apiId).toList());
 
         log.info("Calling AI scenario generator. appId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
                 app.getId(),
@@ -212,17 +214,15 @@ public class ScenarioService {
                 request.requestedBy(),
                 externalServiceProperties.ai().mockEnabled());
 
-        ScenarioGenerateResponse response = aiClient.buildScenario(new ScenarioGenerateRequest(
+        ScenarioGenerateResponse response = aiClient.buildScenario(buildScenarioGenerateRequest(
+                request,
+                app,
                 projectId,
-                scenarioMode(request),
-                userIntent(request),
-                new ScenarioApiInventoryPayload(projectId, aiEndpoints),
-                existingTestCases(inventories, endpoints),
-                3,
-                8
+                aiEndpoints
         ));
 
-        if (response == null || !response.success() || response.data() == null || response.data().scenarios() == null) {
+        List<ScenarioPayload> scenarios = scenarios(response);
+        if (response == null || scenarios.isEmpty()) {
             log.warn("AI scenario generator returned no scenarios. appId={}, success={}, errorCode={}, errorMessage={}, traceId={}",
                     app.getId(),
                     response == null ? null : response.success(),
@@ -236,10 +236,10 @@ public class ScenarioService {
                 app.getId(),
                 response.trace_id(),
                 response.success(),
-                response.data().used_endpoint_ids(),
-                scenarioSummaries(response.data().scenarios()));
+                response.data() == null ? List.of() : response.data().used_endpoint_ids(),
+                scenarioSummaries(scenarios));
 
-        List<ScenarioRecommendationResponse> recommendations = response.data().scenarios().stream()
+        List<ScenarioRecommendationResponse> recommendations = scenarios.stream()
                 .filter(scenario -> scenario.name() != null && !scenario.name().isBlank())
                 .map(scenario -> toRecommendation(scenario, request.scenarioType(), apiIdByEndpointId))
                 .toList();
@@ -265,7 +265,7 @@ public class ScenarioService {
     @Transactional(readOnly = true)
     public ScenarioGenerateResponse generateV2(RecommendScenarioRequest request) {
         if (request == null || request.appId() == null) {
-            return new ScenarioGenerateResponse(false, null, "INVALID_REQUEST", "appId is required", null);
+            return new ScenarioGenerateResponse(null, null, null, false, null, "INVALID_REQUEST", "appId is required", null);
         }
         App app = appService.getApp(request.appId());
         List<ApiInventory> inventories = scenarioInventories(app.getId(), request.apiIds());
@@ -275,14 +275,11 @@ public class ScenarioService {
                 : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
         String projectId = projectId(app, inventories);
 
-        return aiClient.buildScenario(new ScenarioGenerateRequest(
+        return aiClient.buildScenario(buildScenarioGenerateRequest(
+                request,
+                app,
                 projectId,
-                scenarioMode(request),
-                userIntent(request),
-                new ScenarioApiInventoryPayload(projectId, aiEndpoints),
-                existingTestCases(inventories, endpoints),
-                request.appId() != null ? 3 : 3,
-                8
+                aiEndpoints
         ));
     }
 
@@ -359,101 +356,87 @@ public class ScenarioService {
         return "Recommend end-to-end scenarios from backend API inventory.";
     }
 
+    private ScenarioGenerateRequest buildScenarioGenerateRequest(
+            RecommendScenarioRequest request,
+            App app,
+            String projectId,
+            List<ScenarioEndpointPayload> apis
+    ) {
+        String requestId = UUID.randomUUID().toString();
+        Environment environment = request.environmentId() == null
+                ? null
+                : environmentRepository.findById(request.environmentId()).orElse(null);
+        return new ScenarioGenerateRequest(
+                "scenario-generator",
+                requestId,
+                request.requestedBy(),
+                new ProjectPayload(projectId, String.valueOf(app.getId()), app.getName()),
+                environmentPayload(request, environment),
+                new MetadataPayload("ko", LocalDateTime.now(), "flowops"),
+                new TestGenerationContext(
+                        requestId,
+                        scenarioMode(request),
+                        testLevel(request, environment),
+                        null,
+                        null,
+                        userIntent(request)
+                ),
+                apis,
+                null
+        );
+    }
+
+    private EnvironmentPayload environmentPayload(RecommendScenarioRequest request, Environment environment) {
+        if (environment == null) {
+            return request.environmentId() == null
+                    ? null
+                    : new EnvironmentPayload(String.valueOf(request.environmentId()), null, null, null);
+        }
+        return new EnvironmentPayload(
+                String.valueOf(environment.getId()),
+                environment.getName(),
+                environment.getBaseUrl(),
+                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
+        );
+    }
+
+    private String testLevel(RecommendScenarioRequest request, Environment environment) {
+        if (request.testLevel() != null) {
+            return request.testLevel().name();
+        }
+        return environment == null || environment.getDefaultTestLevel() == null
+                ? null
+                : environment.getDefaultTestLevel().name();
+    }
+
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiInventory inventory) {
         return new ScenarioEndpointPayload(
                 endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
-                inventory.getEndpointPath(),
                 inventory.getMethod().name(),
-                inventory.getSummary(),
-                inventory.getOperationId(),
-                List.of(),
+                inventory.getEndpointPath(),
+                inventory.getDomainTag(),
                 parseJson(inventory.getRequestSchema()),
                 parseJson(inventory.getResponseSchema()),
-                authPayload(inventory.isAuthRequired()),
-                tags(inventory.getDomainTag())
+                inventory.isAuthRequired(),
+                false
         );
     }
 
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiEndpoint endpoint) {
         return new ScenarioEndpointPayload(
                 endpointId(endpoint.getMethod().name(), endpoint.getPath()),
-                endpoint.getPath(),
                 endpoint.getMethod().name(),
-                endpoint.getControllerName(),
+                endpoint.getPath(),
                 endpoint.getDomainTag(),
-                List.of(),
                 parseJson(endpoint.getRequestSchema()),
                 parseJson(endpoint.getResponseSchema()),
                 null,
-                tags(endpoint.getDomainTag())
+                endpoint.isDeprecated()
         );
-    }
-
-    private ScenarioAuthPayload authPayload(boolean authRequired) {
-        return authRequired ? new ScenarioAuthPayload("bearer", "header") : new ScenarioAuthPayload("none", null);
-    }
-
-    private List<String> tags(String tag) {
-        return tag == null || tag.isBlank() ? List.of() : List.of(tag);
     }
 
     private String endpointId(String method, String path) {
         return method + ":" + path;
-    }
-
-    private List<ScenarioExistingTestCasePayload> existingTestCases(List<ApiInventory> inventories, List<ApiEndpoint> endpoints) {
-        List<TestCase> testCases = new ArrayList<>();
-        if (!inventories.isEmpty()) {
-            inventories.forEach(inventory -> testCases.addAll(testCaseRepository.findTop3ByApiInventoryIdAndActiveTrueOrderByUpdatedAtDesc(inventory.getId())));
-        } else if (!endpoints.isEmpty()) {
-            testCases.addAll(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(
-                    endpoints.stream().map(ApiEndpoint::getId).toList()
-            ));
-        }
-        LinkedHashSet<Long> seen = new LinkedHashSet<>();
-        return testCases.stream()
-                .filter(testCase -> seen.add(testCase.getId()))
-                .limit(20)
-                .map(this::toScenarioExistingTestCasePayload)
-                .toList();
-    }
-
-    private ScenarioExistingTestCasePayload toScenarioExistingTestCasePayload(TestCase testCase) {
-        ApiInventory inventory = testCase.getApiInventory();
-        ApiEndpoint endpoint = testCase.getApiEndpoint();
-        String endpointId = inventory == null
-                ? endpointId(endpoint.getMethod().name(), endpoint.getPath())
-                : endpointId(inventory.getMethod().name(), inventory.getEndpointPath());
-        return new ScenarioExistingTestCasePayload(
-                String.valueOf(testCase.getId()),
-                endpointId,
-                testCase.getName(),
-                toScenarioType(testCase.getType()),
-                testCase.getDescription(),
-                extractExpectedStatus(testCase.getExpectedSpec())
-        );
-    }
-
-    private String toScenarioType(flowops.testcase.domain.entity.TestCaseType type) {
-        if (type == null) return "NORMAL";
-        return switch (type) {
-            case HAPPY_PATH -> "NORMAL";
-            case VALIDATION, FAILURE_HANDLING, AUTHORIZATION -> "EXCEPTION";
-            case EDGE_CASE, PERFORMANCE -> "BOUNDARY";
-        };
-    }
-
-    private Integer extractExpectedStatus(String expectedSpec) {
-        if (expectedSpec == null || expectedSpec.isBlank()) return 200;
-        try {
-            JsonNode node = objectMapper.readTree(expectedSpec);
-            JsonNode status = node.path("status");
-            if (!status.isMissingNode() && status.isInt()) return status.intValue();
-            JsonNode statusCode = node.path("statusCode");
-            if (!statusCode.isMissingNode() && statusCode.isInt()) return statusCode.intValue();
-        } catch (Exception ignored) {
-        }
-        return 200;
     }
 
     private ScenarioRecommendationResponse toRecommendation(
@@ -482,23 +465,33 @@ public class ScenarioService {
                 step.order(),
                 apiIdByEndpointId.get(step.apiId()),
                 step.apiId(),
-                step.name() == null || step.name().isBlank() ? step.description() : step.name(),
+                stepLabel(step),
                 requestConfig(step),
                 jsonString(step.chained_variables()),
                 validationRules(step)
         );
     }
 
+    private String stepLabel(ScenarioStepPayload step) {
+        if (step.title() != null && !step.title().isBlank()) {
+            return step.title();
+        }
+        if (step.name() != null && !step.name().isBlank()) {
+            return step.name();
+        }
+        return step.description();
+    }
+
     private Map<String, Long> scenarioApiIdByEndpointId(List<ApiInventory> inventories, List<ApiEndpoint> endpoints) {
         Map<String, Long> apiIds = new LinkedHashMap<>();
-        inventories.forEach(inventory -> apiIds.put(
-                endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
-                inventory.getId()
-        ));
-        endpoints.forEach(endpoint -> apiIds.put(
-                endpointId(endpoint.getMethod().name(), endpoint.getPath()),
-                endpoint.getId()
-        ));
+        inventories.forEach(inventory -> {
+            apiIds.put(endpointId(inventory.getMethod().name(), inventory.getEndpointPath()), inventory.getId());
+            apiIds.put(String.valueOf(inventory.getId()), inventory.getId());
+        });
+        endpoints.forEach(endpoint -> {
+            apiIds.put(endpointId(endpoint.getMethod().name(), endpoint.getPath()), endpoint.getId());
+            apiIds.put(String.valueOf(endpoint.getId()), endpoint.getId());
+        });
         return apiIds;
     }
 
@@ -512,6 +505,19 @@ public class ScenarioService {
                                 .toList()
                 ))
                 .toList();
+    }
+
+    private List<ScenarioPayload> scenarios(ScenarioGenerateResponse response) {
+        if (response == null) {
+            return List.of();
+        }
+        if (response.scenarios() != null) {
+            return response.scenarios();
+        }
+        if (response.data() != null && response.data().scenarios() != null) {
+            return response.data().scenarios();
+        }
+        return List.of();
     }
 
     private String requestConfig(ScenarioStepPayload step) {
@@ -544,6 +550,12 @@ public class ScenarioService {
 
     private String validationRules(ScenarioStepPayload step) {
         ObjectNode validationRules = objectMapper.createObjectNode();
+        if (step.expectedSpec() != null && !step.expectedSpec().isNull()) {
+            validationRules.set("expectedSpec", step.expectedSpec());
+        }
+        if (step.assertionSpec() != null && !step.assertionSpec().isNull()) {
+            validationRules.set("assertionSpec", step.assertionSpec());
+        }
         if (step.expected_status_code() != null) {
             validationRules.put("expectedStatusCode", step.expected_status_code());
         }

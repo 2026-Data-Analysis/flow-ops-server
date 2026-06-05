@@ -185,20 +185,17 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "시나리오 빌더 AI 에이전트 요청")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record ScenarioGenerateRequest(
-            @JsonProperty("project_id")
-            String project_id,
-            String mode,
-            @JsonProperty("user_intent")
-            String user_intent,
-            @JsonProperty("api_inventory")
-            ScenarioApiInventoryPayload api_inventory,
-            @JsonProperty("existing_test_cases")
-            List<ScenarioExistingTestCasePayload> existing_test_cases,
-            @JsonProperty("max_scenarios")
-            Integer max_scenarios,
-            @JsonProperty("max_steps_per_scenario")
-            Integer max_steps_per_scenario
+            String agent,
+            String requestId,
+            String requestedBy,
+            ProjectPayload project,
+            EnvironmentPayload environment,
+            MetadataPayload metadata,
+            TestGenerationContext generationContext,
+            List<ScenarioEndpointPayload> apis,
+            FailureContextPayload failureContext
     ) {
     }
 
@@ -210,19 +207,14 @@ public final class AiAgentContracts {
     }
 
     public record ScenarioEndpointPayload(
-            @JsonProperty("endpoint_id")
-            String endpoint_id,
-            String path,
+            String apiId,
             String method,
-            String summary,
-            String description,
-            List<JsonNode> parameters,
-            @JsonProperty("request_body_schema")
-            JsonNode request_body_schema,
-            @JsonProperty("response_schema")
-            JsonNode response_schema,
-            ScenarioAuthPayload auth,
-            List<String> tags
+            String path,
+            String domainTag,
+            JsonNode requestSchema,
+            JsonNode responseSchema,
+            Boolean authRequired,
+            Boolean deprecated
     ) {
     }
 
@@ -246,8 +238,12 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "시나리오 빌더 AI 에이전트 응답")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScenarioGenerateResponse(
-            boolean success,
+            String requestId,
+            String generationId,
+            List<ScenarioPayload> scenarios,
+            Boolean success,
             ScenarioGenerateDataPayload data,
             @JsonProperty("error_code")
             String error_code,
@@ -270,6 +266,7 @@ public final class AiAgentContracts {
             String scenario_id,
             String name,
             String description,
+            String type,
             List<ScenarioStepPayload> steps,
             MetaPayload meta
     ) {

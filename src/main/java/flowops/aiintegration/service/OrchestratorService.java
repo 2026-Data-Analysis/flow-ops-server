@@ -15,14 +15,13 @@ import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ReportContextPayload;
-import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
-import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
+import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -167,28 +166,27 @@ public class OrchestratorService {
             for (JsonNode ep : inventory.get("endpoints")) {
                 endpoints.add(new ScenarioEndpointPayload(
                         textOrNull(ep, "endpoint_id"),
-                        textOrNull(ep, "path"),
                         textOrNull(ep, "method"),
-                        textOrNull(ep, "summary"),
+                        textOrNull(ep, "path"),
                         null,
+                        ep.get("requestSchema") == null ? ep.get("request_body_schema") : ep.get("requestSchema"),
+                        ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema"),
                         null,
-                        ep.get("request_body_schema"),
-                        ep.get("response_schema"),
-                        ep.has("auth") ? new ScenarioAuthPayload(
-                                textOrNull(ep.get("auth"), "type"), null) : null,
                         null
                 ));
             }
         }
 
         ScenarioGenerateRequest aiReq = new ScenarioGenerateRequest(
-                projectId,
-                "STANDARD",
-                request.userPrompt(),
-                new ScenarioApiInventoryPayload(projectId, endpoints),
-                List.of(),
-                5,
-                10
+                "scenario-generator",
+                UUID.randomUUID().toString(),
+                "orchestrator",
+                new ProjectPayload(projectId, null, null),
+                null,
+                new MetadataPayload("ko", LocalDateTime.now(), "orchestrator"),
+                new TestGenerationContext(null, "STANDARD", null, null, null, request.userPrompt()),
+                endpoints,
+                null
         );
 
         ScenarioGenerateResponse res = aiClient.buildScenario(aiReq);
