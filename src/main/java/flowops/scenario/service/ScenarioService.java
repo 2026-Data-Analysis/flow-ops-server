@@ -12,6 +12,7 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
+import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
@@ -64,6 +65,7 @@ public class ScenarioService {
     private final ExternalServiceProperties externalServiceProperties;
     private final ObjectMapper objectMapper;
     private final TestCaseRepository testCaseRepository;
+    private final ExecutionStepLogRepository executionStepLogRepository;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
@@ -145,6 +147,7 @@ public class ScenarioService {
                 request.recommendationReason()
         );
         if (request.steps() != null) {
+            executionStepLogRepository.clearScenarioStepReferencesByScenarioId(scenarioId);
             scenarioStepRepository.deleteAll(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId));
             return ScenarioDetailResponse.of(scenario, replaceSteps(scenario, request.steps()));
         }
@@ -576,6 +579,7 @@ public class ScenarioService {
     public void delete(Long scenarioId) {
         Scenario scenario = scenarioRepository.findById(scenarioId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "시나리오를 찾을 수 없습니다."));
+        executionStepLogRepository.clearScenarioStepReferencesByScenarioId(scenarioId);
         scenarioStepRepository.deleteAll(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenarioId));
         scenarioRepository.delete(scenario);
     }

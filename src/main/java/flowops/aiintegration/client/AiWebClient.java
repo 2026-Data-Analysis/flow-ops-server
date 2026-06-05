@@ -76,7 +76,7 @@ public class AiWebClient implements AiClient {
 
     @Override
     public ScenarioGenerateResponse buildScenario(ScenarioGenerateRequest request) {
-        return post("/v1/agents/scenario/generate", request, ScenarioGenerateResponse.class);
+        return post("/api/v1/scenario/generate", request, ScenarioGenerateResponse.class);
     }
 
     @Override
