@@ -8,6 +8,7 @@ import flowops.apiinventory.dto.response.ApiInventoryListResponse;
 import flowops.apiinventory.dto.response.ApiInventoryResponse;
 import flowops.apiinventory.service.ApiInventoryService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.testcase.domain.entity.TestLevel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * API Inventory의 조회와 수동 저장 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/projects/{projectId}/api-inventories")
 @RequiredArgsConstructor

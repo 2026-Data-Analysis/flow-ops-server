@@ -1,6 +1,7 @@
 package flowops.project.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.project.dto.request.CreateProjectRequest;
 import flowops.project.dto.response.ProjectResponse;
 import flowops.project.service.ProjectService;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 프로젝트 생성 API를 노출합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/projects")
 @RequiredArgsConstructor

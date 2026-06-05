@@ -1,5 +1,6 @@
 package flowops.testgeneration.dto.response;
 
+import flowops.execution.support.ExecutionRequestSpecSupport;
 import flowops.testgeneration.domain.entity.GeneratedTestCaseDraft;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
@@ -13,6 +14,10 @@ public record GeneratedTestCaseDraftResponse(
         Long apiId,
         @Schema(description = "AI가 제안한 테스트 케이스 이름", example = "Generated happy path for API 10")
         String title,
+        @Schema(description = "실제로 실행할 HTTP 메서드", example = "GET")
+        String executionMethod,
+        @Schema(description = "실제로 실행할 엔드포인트", example = "/apps//scenarios")
+        String executionEndpoint,
         @Schema(description = "AI가 제안한 테스트 케이스 설명", example = "Mocked AI-generated draft based on the current API metadata.")
         String description,
         @Schema(description = "테스트 케이스 유형", example = "HAPPY_PATH")
@@ -43,6 +48,8 @@ public record GeneratedTestCaseDraftResponse(
                 draft.getGeneration().getId(),
                 draft.getApiInventory() == null ? draft.getApiEndpoint().getId() : draft.getApiInventory().getId(),
                 draft.getTitle(),
+                executionMethod(draft),
+                executionEndpoint(draft),
                 draft.getDescription(),
                 draft.getType(),
                 draft.getUserRole(),
@@ -55,5 +62,15 @@ public record GeneratedTestCaseDraftResponse(
                 draft.isSelectedForSave(),
                 draft.getCreatedAt()
         );
+    }
+
+    private static String executionMethod(GeneratedTestCaseDraft draft) {
+        String override = ExecutionRequestSpecSupport.executionMethod(draft.getRequestSpec());
+        return override == null ? draft.getApiEndpoint().getMethod().name() : override;
+    }
+
+    private static String executionEndpoint(GeneratedTestCaseDraft draft) {
+        String override = ExecutionRequestSpecSupport.executionEndpoint(draft.getRequestSpec());
+        return override == null ? draft.getApiEndpoint().getPath() : override;
     }
 }

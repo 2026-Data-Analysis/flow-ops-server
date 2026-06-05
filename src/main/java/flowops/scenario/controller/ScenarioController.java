@@ -1,6 +1,7 @@
 package flowops.scenario.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.scenario.dto.request.CreateScenarioRequest;
 import flowops.scenario.dto.request.RecommendScenarioRequest;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 시나리오 추천, 생성, 수정, 단계 재정렬 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "시나리오", description = "시나리오 추천 및 빌더 관리 API")

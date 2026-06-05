@@ -4,6 +4,7 @@ import flowops.coverage.dto.response.ApiCoverageSummaryResponse;
 import flowops.coverage.dto.response.ExecutionCoverageImpactResponse;
 import flowops.coverage.service.CoverageService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * API 커버리지와 실행 영향도 조회 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "커버리지", description = "커버리지 요약 및 실행 영향 조회 API")

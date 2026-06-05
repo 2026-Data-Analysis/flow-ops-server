@@ -512,7 +512,24 @@ public class ScenarioService {
     }
 
     private String requestConfig(ScenarioStepPayload step) {
-        ObjectNode requestConfig = objectMapper.createObjectNode();
+        ObjectNode requestConfig = step.requestSpec() != null && step.requestSpec().isObject()
+                ? step.requestSpec().deepCopy()
+                : objectMapper.createObjectNode();
+        if (step.execution_endpoint() != null && !step.execution_endpoint().isBlank()
+                && !requestConfig.has("endpoint") && !requestConfig.has("path")) {
+            requestConfig.put("endpoint", step.execution_endpoint().trim());
+        }
+        if (step.execution_method() != null && !step.execution_method().isBlank()
+                && !requestConfig.has("method")) {
+            requestConfig.put("method", step.execution_method().trim().toUpperCase());
+        }
+        if (step.requestSpec() != null
+                && !step.requestSpec().isNull()
+                && !step.requestSpec().isMissingNode()
+                && !step.requestSpec().isObject()
+                && !requestConfig.has("body")) {
+            requestConfig.set("body", step.requestSpec());
+        }
         if (step.static_payload() != null && !step.static_payload().isNull()) {
             requestConfig.set("body", step.static_payload());
         }

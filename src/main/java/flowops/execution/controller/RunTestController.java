@@ -10,6 +10,7 @@ import flowops.execution.dto.response.ExecutionDetailResponse;
 import flowops.execution.dto.response.GenerateFailureTestCasesResponse;
 import flowops.execution.service.RunTestService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 테스트 실행 요청과 재실행 같은 실행 command API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "테스트 실행", description = "테스트 실행 요청 API")

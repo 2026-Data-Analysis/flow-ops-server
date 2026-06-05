@@ -1,5 +1,6 @@
 package flowops.testcase.dto.response;
 
+import flowops.execution.support.ExecutionRequestSpecSupport;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestCaseSource;
 import flowops.testcase.domain.entity.TestCaseType;
@@ -16,6 +17,10 @@ public record TestCaseDetailResponse(
         Long apiId,
         @Schema(description = "테스트 케이스 이름", example = "결제 승인 정상 흐름")
         String name,
+        @Schema(description = "실제로 실행할 HTTP 메서드", example = "GET")
+        String executionMethod,
+        @Schema(description = "실제로 실행할 엔드포인트", example = "/apps//scenarios")
+        String executionEndpoint,
         @Schema(description = "설명", example = "유효한 카드 정보로 결제 승인 요청 시 200 응답을 검증합니다.")
         String description,
         @Schema(description = "테스트 유형", example = "HAPPY_PATH")
@@ -52,6 +57,8 @@ public record TestCaseDetailResponse(
                 testCase.getApp().getId(),
                 testCase.getApiInventory() == null ? testCase.getApiEndpoint().getId() : testCase.getApiInventory().getId(),
                 testCase.getName(),
+                executionMethod(testCase),
+                executionEndpoint(testCase),
                 testCase.getDescription(),
                 testCase.getType(),
                 testCase.getTestLevel(),
@@ -67,5 +74,15 @@ public record TestCaseDetailResponse(
                 testCase.getCreatedAt(),
                 testCase.getUpdatedAt()
         );
+    }
+
+    private static String executionMethod(TestCase testCase) {
+        String override = ExecutionRequestSpecSupport.executionMethod(testCase.getRequestSpec());
+        return override == null ? testCase.getApiEndpoint().getMethod().name() : override;
+    }
+
+    private static String executionEndpoint(TestCase testCase) {
+        String override = ExecutionRequestSpecSupport.executionEndpoint(testCase.getRequestSpec());
+        return override == null ? testCase.getApiEndpoint().getPath() : override;
     }
 }

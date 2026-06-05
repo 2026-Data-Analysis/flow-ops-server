@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
@@ -44,7 +45,7 @@ class WebClientAiTestGenerationGatewayTest {
     private TestCaseRepository testCaseRepository;
 
     @Test
-    void generateDraftsSendsContractApiSchemaFieldsInPayload() {
+    void generateDraftsSendsContractApiSchemaFieldsInPayload() throws Exception {
         App app = app(41L);
         TestGeneration generation = generation(57L, app);
         ApiEndpoint endpoint = endpoint(2059L, app);
@@ -64,6 +65,11 @@ class WebClientAiTestGenerationGatewayTest {
         assertThat(captor.getValue().apis().get(0).apiId()).isEqualTo("2059");
         assertThat(captor.getValue().apis().get(0).requestSchema().get("type").asText()).isEqualTo("object");
         assertThat(captor.getValue().apis().get(0).responseSchema().get("status").asInt()).isEqualTo(201);
+        assertThat(new ObjectMapper().writeValueAsString(captor.getValue().apis().get(0)))
+                .contains("\"request_body_schema\"")
+                .contains("\"response_schema\"")
+                .doesNotContain("requestSchema")
+                .doesNotContain("responseSchema");
     }
 
     @Test
@@ -83,6 +89,27 @@ class WebClientAiTestGenerationGatewayTest {
 
         assertThat(commands).isEmpty();
         verify(aiClient).generateTestCaseDrafts(any(TestCaseGeneratorRequest.class));
+    }
+
+    @Test
+    void generateDraftsStoresExecutionEndpointFromAiResponseInRequestSpec() throws Exception {
+        App app = app(41L);
+        TestGeneration generation = generation(57L, app);
+        ApiEndpoint endpoint = endpoint(2059L, app);
+
+        when(apiInventoryRepository.findById(2059L)).thenReturn(Optional.empty());
+        when(apiEndpointService.getApiEndpoint(2059L)).thenReturn(endpoint);
+        when(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(List.of(2059L)))
+                .thenReturn(List.of());
+        when(aiClient.generateTestCaseDrafts(any(TestCaseGeneratorRequest.class)))
+                .thenReturn(response("2059", "/apps//scenarios", "GET"));
+
+        List<AiGeneratedDraftCommand> commands = gateway().generateDrafts(generation, List.of(2059L), null);
+
+        JsonNode requestSpec = new ObjectMapper().readTree(commands.get(0).requestSpec());
+        assertThat(requestSpec.path("endpoint").asText()).isEqualTo("/apps//scenarios");
+        assertThat(requestSpec.path("method").asText()).isEqualTo("GET");
+        assertThat(requestSpec.path("body").asText()).isEqualTo("sample");
     }
 
     private WebClientAiTestGenerationGateway gateway() {
@@ -133,6 +160,10 @@ class WebClientAiTestGenerationGatewayTest {
     }
 
     private TestCaseGeneratorResponse response(String apiId) {
+        return response(apiId, null, null);
+    }
+
+    private TestCaseGeneratorResponse response(String apiId, String executionEndpoint, String executionMethod) {
         return new TestCaseGeneratorResponse(
                 "req-1",
                 "57",
@@ -146,6 +177,8 @@ class WebClientAiTestGenerationGatewayTest {
                         "CUSTOMER",
                         "Signed in",
                         "single product",
+                        executionEndpoint,
+                        executionMethod,
                         new ObjectMapper().createObjectNode().put("body", "sample"),
                         new ObjectMapper().createObjectNode().put("status", 201),
                         new ObjectMapper().createObjectNode().put("assertion", "status == 201"),

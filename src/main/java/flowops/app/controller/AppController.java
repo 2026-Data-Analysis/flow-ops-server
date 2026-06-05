@@ -5,6 +5,7 @@ import flowops.app.dto.request.SetMainAppRequest;
 import flowops.app.dto.response.AppDetailResponse;
 import flowops.app.service.AppService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 테스트 대상 애플리케이션 등록과 상세 조회 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/apps")
 @RequiredArgsConstructor

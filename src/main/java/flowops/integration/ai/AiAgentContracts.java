@@ -84,7 +84,9 @@ public final class AiAgentContracts {
             String method,
             String path,
             String domainTag,
+            @JsonProperty("request_body_schema")
             JsonNode requestSchema,
+            @JsonProperty("response_schema")
             JsonNode responseSchema,
             Boolean authRequired,
             Boolean deprecated
@@ -134,6 +136,10 @@ public final class AiAgentContracts {
             String userRole,
             String stateCondition,
             String dataVariant,
+            @JsonProperty("execution_endpoint")
+            String execution_endpoint,
+            @JsonProperty("execution_method")
+            String execution_method,
             JsonNode requestSpec,
             JsonNode expectedSpec,
             JsonNode assertionSpec,
@@ -298,6 +304,10 @@ public final class AiAgentContracts {
             String userRole,
             String stateCondition,
             String dataVariant,
+            @JsonProperty("execution_endpoint")
+            String execution_endpoint,
+            @JsonProperty("execution_method")
+            String execution_method,
             JsonNode requestSpec,
             JsonNode expectedSpec,
             JsonNode assertionSpec,

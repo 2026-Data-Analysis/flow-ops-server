@@ -9,6 +9,7 @@ import flowops.environment.dto.response.TriggerRuleResponse;
 import flowops.environment.service.EnvironmentService;
 import flowops.environment.service.TriggerRuleService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 실행 환경과 환경별 트리거 규칙을 관리하는 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "실행 환경", description = "실행 환경 및 트리거 규칙 관리 API")

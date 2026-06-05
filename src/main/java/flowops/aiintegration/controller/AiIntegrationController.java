@@ -4,6 +4,7 @@ import flowops.aiintegration.dto.request.AnalyzeSpecRequest;
 import flowops.aiintegration.dto.response.AiSuggestionResponse;
 import flowops.aiintegration.service.AiSuggestionService;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 외부 AI 분석 요청을 프로젝트 제안 이력으로 남기는 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/projects/{projectId}/ai")
 @RequiredArgsConstructor

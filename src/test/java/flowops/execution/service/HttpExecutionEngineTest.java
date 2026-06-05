@@ -103,6 +103,8 @@ class HttpExecutionEngineTest {
                         Map.of(),
                         Map.of(),
                         Map.of(),
+                        null,
+                        null,
                         objectMapper.readTree("{\"item\":\"book\"}"),
                         objectMapper
                 ),
@@ -220,6 +222,38 @@ class HttpExecutionEngineTest {
     }
 
     @Test
+    void executeUsesRequestSpecEndpointAndMethodOverride() {
+        server.createContext("/apps/invalid/scenarios", exchange -> {
+            assertThat(exchange.getRequestMethod()).isEqualTo("GET");
+            writeResponse(exchange, 400, "{\"code\":\"COMMON-400\"}");
+        });
+        server.start();
+
+        ExecutionStepLog log = engine.execute(
+                execution(environment("{}")),
+                null,
+                null,
+                api(ApiMethod.POST, "/apps/{appId}/scenarios"),
+                "invalid app id",
+                new HttpExecutionEngine.RequestDefinition(
+                        Map.of(),
+                        Map.of(),
+                        Map.of(),
+                        "/apps/invalid/scenarios",
+                        "GET",
+                        null,
+                        objectMapper
+                ),
+                HttpExecutionEngine.ExpectedDefinition.exact(400)
+        );
+
+        assertThat(log.getStatus()).isEqualTo(ExecutionStepStatus.SUCCESS);
+        assertThat(log.getResponseCode()).isEqualTo(400);
+        assertThat(log.getPath()).isEqualTo("/apps/invalid/scenarios");
+        assertThat(log.getMethod()).isEqualTo("GET");
+    }
+
+    @Test
     void tearDownModeDeletesCreatedResourceAfterSuccessfulPost() throws Exception {
         AtomicBoolean deleted = new AtomicBoolean(false);
         server.createContext("/orders", exchange -> writeResponse(exchange, 201, "{\"id\":9}"));
@@ -243,6 +277,8 @@ class HttpExecutionEngineTest {
                         Map.of(),
                         Map.of(),
                         Map.of(),
+                        null,
+                        null,
                         objectMapper.readTree("{\"item\":\"book\"}"),
                         objectMapper
                 ),

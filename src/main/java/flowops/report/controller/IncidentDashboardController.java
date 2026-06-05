@@ -1,6 +1,7 @@
 package flowops.report.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.report.dto.response.IncidentDashboardResponse;
 import flowops.report.service.IncidentDashboardService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 앱 단위 Incident Dashboard 집계 데이터를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "인시던트 대시보드", description = "장애/실행 집계 대시보드 API")

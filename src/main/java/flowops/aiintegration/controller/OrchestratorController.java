@@ -3,6 +3,7 @@ package flowops.aiintegration.controller;
 import flowops.aiintegration.dto.request.OrchestratorDispatchRequest;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse;
 import flowops.aiintegration.service.OrchestratorService;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Orchestrator", description = "멀티 에이전트 오케스트레이터 디스패치 API")

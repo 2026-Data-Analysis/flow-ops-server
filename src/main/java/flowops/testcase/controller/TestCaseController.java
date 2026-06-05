@@ -1,6 +1,7 @@
 package flowops.testcase.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.testcase.dto.request.CreateTestCaseRequest;
 import flowops.testcase.dto.request.UpdateTestCaseActiveRequest;
 import flowops.testcase.dto.request.UpdateTestCaseRequest;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 테스트케이스 조회, 수정, 삭제 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "테스트 케이스", description = "테스트 케이스 조회 및 수정 API")

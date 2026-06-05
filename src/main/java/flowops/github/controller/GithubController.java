@@ -2,6 +2,7 @@ package flowops.github.controller;
 
 import flowops.apiinventory.dto.response.ScanResultResponse;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.github.dto.request.RegisterRepositoryRequest;
 import flowops.github.dto.request.ScanRepositoryRequest;
 import flowops.github.dto.response.BranchResponse;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 프로젝트와 GitHub 저장소 연결/조회/스캔 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/projects/{projectId}/repositories")
 @RequiredArgsConstructor

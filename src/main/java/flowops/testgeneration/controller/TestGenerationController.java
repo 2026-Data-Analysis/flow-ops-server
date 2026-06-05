@@ -1,6 +1,7 @@
 package flowops.testgeneration.controller;
 
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.testgeneration.dto.request.CreateTestGenerationRequest;
 import flowops.testgeneration.dto.request.SaveGeneratedDraftsRequest;
 import flowops.testgeneration.dto.response.GeneratedTestCaseDraftResponse;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "테스트 생성", description = "AI 테스트 케이스 생성 요청 및 초안 저장 API")

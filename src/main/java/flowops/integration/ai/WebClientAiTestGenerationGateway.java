@@ -2,6 +2,7 @@ package flowops.integration.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.service.ApiEndpointService;
@@ -218,11 +219,37 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 draft.userRole(),
                 draft.stateCondition(),
                 draft.dataVariant(),
-                jsonToStorageText(draft.requestSpec()),
+                jsonToStorageText(mergeExecutionTarget(draft.requestSpec(), draft.execution_endpoint(), draft.execution_method())),
                 jsonToStorageText(draft.expectedSpec()),
                 jsonToStorageText(draft.assertionSpec()),
                 draft.duplicate()
         );
+    }
+
+    private JsonNode mergeExecutionTarget(JsonNode requestSpec, String executionEndpoint, String executionMethod) {
+        if ((executionEndpoint == null || executionEndpoint.isBlank())
+                && (executionMethod == null || executionMethod.isBlank())) {
+            return requestSpec;
+        }
+        ObjectNode target = requestSpec != null && requestSpec.isObject()
+                ? requestSpec.deepCopy()
+                : objectMapper.createObjectNode();
+        if (executionEndpoint != null && !executionEndpoint.isBlank()
+                && !target.has("endpoint") && !target.has("path")) {
+            target.put("endpoint", executionEndpoint.trim());
+        }
+        if (executionMethod != null && !executionMethod.isBlank()
+                && !target.has("method")) {
+            target.put("method", executionMethod.trim().toUpperCase());
+        }
+        if (requestSpec != null
+                && !requestSpec.isNull()
+                && !requestSpec.isMissingNode()
+                && !requestSpec.isObject()
+                && !target.has("body")) {
+            target.set("body", requestSpec);
+        }
+        return target;
     }
 
     private List<AiGeneratedDraftCommand> toCommands(TestCaseGeneratorResponse response, Map<String, Long> responseApiIdToSourceApiId) {

@@ -174,7 +174,7 @@ public class HttpExecutionEngine {
                 .scenarioStep(scenarioStep)
                 .stepOrder(scenarioStep == null ? null : scenarioStep.getStepOrder())
                 .stepName(stepName)
-                .method(apiEndpoint.getMethod().name())
+                .method(result.requestMethod())
                 .path(result.requestPath())
                 .status(passed ? ExecutionStepStatus.SUCCESS : ExecutionStepStatus.FAILED)
                 .requestBody(result.requestBody())
@@ -199,7 +199,8 @@ public class HttpExecutionEngine {
             ActualHttpResult result,
             LocalDateTime createdAt
     ) {
-        if (execution == null || !execution.isTearDownMode() || apiEndpoint.getMethod() != flowops.api.domain.entity.ApiMethod.POST) {
+        String executedMethod = requestDefinition.method(apiEndpoint.getMethod().name());
+        if (execution == null || !execution.isTearDownMode() || !"POST".equals(executedMethod)) {
             return;
         }
         if (result.statusCode() == null || result.statusCode() < 200 || result.statusCode() >= 300) {
@@ -207,16 +208,16 @@ public class HttpExecutionEngine {
         }
         String createdId = extractCreatedResourceId(result.responseBody());
         if (createdId == null || createdId.isBlank()) {
-            saveTearDownFailure(execution, stepName, apiEndpoint.getPath(), "Could not resolve created resource id from response body.", createdAt);
+            saveTearDownFailure(execution, stepName, requestDefinition.endpointPath(apiEndpoint.getPath()), "Could not resolve created resource id from response body.", createdAt);
             return;
         }
         ApiEndpoint cleanupEndpoint = apiEndpointService.findCleanupEndpoint(apiEndpoint).orElse(null);
         if (cleanupEndpoint == null) {
-            saveTearDownFailure(execution, stepName, apiEndpoint.getPath(), "Could not find a matching DELETE endpoint for tearDown.", createdAt);
+            saveTearDownFailure(execution, stepName, requestDefinition.endpointPath(apiEndpoint.getPath()), "Could not find a matching DELETE endpoint for tearDown.", createdAt);
             return;
         }
 
-        RequestDefinition resolvedCreateRequest = requestDefinition.withResolvedPathParams(apiEndpoint.getPath());
+        RequestDefinition resolvedCreateRequest = requestDefinition.withResolvedPathParams(requestDefinition.endpointPath(apiEndpoint.getPath()));
         RequestDefinition cleanupRequest = RequestDefinition.empty(objectMapper)
                 .withFallbackPathParams(resolvedCreateRequest.pathParams())
                 .withFallbackPathParams(pathParamsForCreatedResource(cleanupEndpoint.getPath(), createdId));
@@ -273,19 +274,21 @@ public class HttpExecutionEngine {
     }
 
     private ActualHttpResult callHttp(Environment environment, ApiEndpoint apiEndpoint, RequestDefinition requestDefinition) {
-        String requestPath = apiEndpoint.getPath();
+        String endpointPath = requestDefinition.endpointPath(apiEndpoint.getPath());
+        String requestPath = endpointPath;
+        String requestMethod = requestDefinition.method(apiEndpoint.getMethod().name());
         String requestBody = requestDefinition.bodyAsString();
         try {
-            RequestDefinition resolvedDefinition = requestDefinition.withResolvedPathParams(apiEndpoint.getPath());
+            RequestDefinition resolvedDefinition = requestDefinition.withResolvedPathParams(endpointPath);
             URI uri = buildUri(
                     normalizeBaseUrl(environment == null ? null : environment.getBaseUrl()),
-                    applyPathParams(apiEndpoint.getPath(), resolvedDefinition.pathParams()),
+                    applyPathParams(endpointPath, resolvedDefinition.pathParams()),
                     resolvedDefinition.queryParams()
             );
             requestPath = requestPathWithQuery(uri);
             requestBody = resolvedDefinition.bodyAsString();
             WebClient.RequestBodySpec request = webClientBuilder.build()
-                    .method(HttpMethod.valueOf(apiEndpoint.getMethod().name()))
+                    .method(HttpMethod.valueOf(requestMethod))
                     .uri(uri)
                     .headers(headers -> {
                         headers.setAll(parseStringMap(environment == null ? null : environment.getHeaders()));
@@ -305,6 +308,7 @@ public class HttpExecutionEngine {
                             .defaultIfEmpty("")
                             .map(body -> new ActualHttpResult(
                                     response.statusCode().value(),
+                                    requestMethod,
                                     finalRequestPath,
                                     finalRequestBody,
                                     body
@@ -313,6 +317,7 @@ public class HttpExecutionEngine {
         } catch (Exception exception) {
             return new ActualHttpResult(
                     null,
+                    requestMethod,
                     requestPath,
                     requestBody,
                     "{\"error\":\"" + escapeJson(exception.getMessage()) + "\"}"
@@ -397,14 +402,28 @@ public class HttpExecutionEngine {
         if (root.isObject() && root.isEmpty()) {
             return RequestDefinition.empty(objectMapper);
         }
+        String endpointPath = parseText(firstPresent(root, "endpoint", "executionEndpoint", "execution_endpoint", "requestPath", "request_path", "url"));
+        JsonNode pathNode = firstPresent(root, "path");
+        if (endpointPath == null && pathNode != null && pathNode.isTextual()) {
+            endpointPath = pathNode.asText();
+        }
+        String method = parseText(firstPresent(root, "method", "httpMethod", "http_method"));
         JsonNode body = firstPresent(root, "body", "json", "payload", "requestBody");
-        if (body == null && !root.has("headers") && !root.has("queryParams") && !root.has("query") && !root.has("params")) {
+        if (body == null
+                && !root.has("headers")
+                && !root.has("queryParams")
+                && !root.has("query")
+                && !root.has("params")
+                && endpointPath == null
+                && method == null) {
             body = root;
         }
         return new RequestDefinition(
                 parseStringMap(firstPresent(root, "headers")),
-                parseStringMap(firstPresent(root, "pathParams", "pathParameters", "path_params", "path")),
+                parseStringMap(firstPresent(root, "pathParams", "pathParameters", "path_params", pathNode != null && pathNode.isObject() ? "path" : "")),
                 parseStringMap(firstPresent(root, "queryParams", "queryParameters", "query_params", "query", "params")),
+                endpointPath,
+                method,
                 body == null || body.isNull() || body.isMissingNode() ? null : body,
                 objectMapper
         );
@@ -561,12 +580,26 @@ public class HttpExecutionEngine {
             return null;
         }
         for (String fieldName : fieldNames) {
+            if (fieldName == null || fieldName.isBlank()) {
+                continue;
+            }
             JsonNode value = root.get(fieldName);
             if (value != null && !value.isMissingNode()) {
                 return value;
             }
         }
         return null;
+    }
+
+    private String parseText(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (!node.isTextual()) {
+            return null;
+        }
+        String value = node.asText();
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Map<String, String> parseStringMap(String value) {
@@ -717,12 +750,14 @@ public class HttpExecutionEngine {
             Map<String, String> headers,
             Map<String, String> pathParams,
             Map<String, String> queryParams,
+            String endpointPath,
+            String method,
             JsonNode body,
             ObjectMapper objectMapper
     ) {
 
         static RequestDefinition empty(ObjectMapper objectMapper) {
-            return new RequestDefinition(Map.of(), Map.of(), Map.of(), null, objectMapper);
+            return new RequestDefinition(Map.of(), Map.of(), Map.of(), null, null, null, objectMapper);
         }
 
         RequestDefinition withFallbackPathParams(Map<String, String> fallbackPathParams) {
@@ -731,7 +766,7 @@ public class HttpExecutionEngine {
             }
             Map<String, String> resolvedPathParams = new LinkedHashMap<>(fallbackPathParams);
             resolvedPathParams.putAll(pathParams);
-            return new RequestDefinition(headers, resolvedPathParams, queryParams, body, objectMapper);
+            return new RequestDefinition(headers, resolvedPathParams, queryParams, endpointPath, method, body, objectMapper);
         }
 
         RequestDefinition withResolvedPathParams(String endpointPath) {
@@ -753,7 +788,15 @@ public class HttpExecutionEngine {
                 }
                 resolvedPathParams.put(name, value);
             }
-            return new RequestDefinition(headers, resolvedPathParams, resolvedQueryParams, body, objectMapper);
+            return new RequestDefinition(headers, resolvedPathParams, resolvedQueryParams, endpointPath, method, body, objectMapper);
+        }
+
+        String endpointPath(String fallbackPath) {
+            return endpointPath == null || endpointPath.isBlank() ? fallbackPath : endpointPath;
+        }
+
+        String method(String fallbackMethod) {
+            return method == null || method.isBlank() ? fallbackMethod : method.trim().toUpperCase();
         }
 
         boolean hasBody() {
@@ -795,6 +838,7 @@ public class HttpExecutionEngine {
 
     private record ActualHttpResult(
             Integer statusCode,
+            String requestMethod,
             String requestPath,
             String requestBody,
             String responseBody

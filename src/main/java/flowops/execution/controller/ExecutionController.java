@@ -9,6 +9,7 @@ import flowops.execution.dto.response.ExecutionSummaryResponse;
 import flowops.execution.service.ExecutionQueryService;
 import flowops.global.response.ApiResponse;
 import flowops.global.response.PageResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.testcase.domain.entity.TestLevel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "실행 이력", description = "실행 이력과 로그 조회 API")

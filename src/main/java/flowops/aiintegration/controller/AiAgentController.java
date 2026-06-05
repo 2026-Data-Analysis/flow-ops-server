@@ -2,6 +2,7 @@ package flowops.aiintegration.controller;
 
 import flowops.aiintegration.client.AiClient;
 import flowops.global.response.ApiResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@CommonApiErrorResponses
 @RestController
 @RequestMapping("/ai/agents")
 @RequiredArgsConstructor

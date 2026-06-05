@@ -2,6 +2,7 @@ package flowops.testcase.dto.response;
 
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
+import flowops.execution.support.ExecutionRequestSpecSupport;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestCaseType;
 import flowops.testcase.domain.entity.TestLevel;
@@ -14,6 +15,10 @@ public record TestCaseSummaryResponse(
         Long apiId,
         @Schema(description = "테스트 케이스 이름", example = "결제 승인 정상 흐름")
         String name,
+        @Schema(description = "실제로 실행할 HTTP 메서드", example = "GET")
+        String executionMethod,
+        @Schema(description = "실제로 실행할 엔드포인트", example = "/apps//scenarios")
+        String executionEndpoint,
         @Schema(description = "테스트케이스 유형", example = "HAPPY_PATH")
         TestCaseType type,
         @Schema(description = "테스트 레벨", example = "SMOKE")
@@ -45,6 +50,8 @@ public record TestCaseSummaryResponse(
                 testCase.getId(),
                 testCase.getApiInventory() == null ? testCase.getApiEndpoint().getId() : testCase.getApiInventory().getId(),
                 testCase.getName(),
+                executionMethod(testCase),
+                executionEndpoint(testCase),
                 testCase.getType(),
                 testCase.getTestLevel(),
                 testCase.getDescription(),
@@ -61,6 +68,16 @@ public record TestCaseSummaryResponse(
                         testCase.getApiInventory() == null ? selectedEndpoint.getId() : testCase.getApiInventory().getId()
                 )
         );
+    }
+
+    private static String executionMethod(TestCase testCase) {
+        String override = ExecutionRequestSpecSupport.executionMethod(testCase.getRequestSpec());
+        return override == null ? testCase.getApiEndpoint().getMethod().name() : override;
+    }
+
+    private static String executionEndpoint(TestCase testCase) {
+        String override = ExecutionRequestSpecSupport.executionEndpoint(testCase.getRequestSpec());
+        return override == null ? testCase.getApiEndpoint().getPath() : override;
     }
 
     public record SelectedEndpointResponse(

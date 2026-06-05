@@ -6,6 +6,7 @@ import flowops.api.dto.response.ApiEndpointListItemResponse;
 import flowops.api.service.ApiEndpointService;
 import flowops.global.response.ApiResponse;
 import flowops.global.response.PageResponse;
+import flowops.global.swagger.CommonApiErrorResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 애플리케이션에 수집된 API 엔드포인트 조회 API를 제공합니다.
  */
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "API 엔드포인트", description = "앱별 API 엔드포인트 조회 API")

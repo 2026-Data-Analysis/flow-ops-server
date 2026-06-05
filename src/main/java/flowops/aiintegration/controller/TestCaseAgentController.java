@@ -3,6 +3,7 @@ package flowops.aiintegration.controller;
 import flowops.aiintegration.dto.request.AgentTestCaseGenerateRequest;
 import flowops.aiintegration.service.AgentTestCaseGenerateService;
 import flowops.aiintegration.service.AgentTestCaseGenerateService.AgentBadRequestException;
+import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+@CommonApiErrorResponses
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "테스트케이스 생성 에이전트", description = "AI 테스트케이스 생성 에이전트 직접 호출 API")
