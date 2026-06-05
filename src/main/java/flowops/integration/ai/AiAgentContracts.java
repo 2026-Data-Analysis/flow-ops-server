@@ -195,6 +195,8 @@ public final class AiAgentContracts {
             MetadataPayload metadata,
             TestGenerationContext generationContext,
             List<ScenarioEndpointPayload> apis,
+            @JsonProperty("existing_test_cases")
+            List<ScenarioExistingTestCasePayload> existing_test_cases,
             FailureContextPayload failureContext
     ) {
     }
@@ -210,10 +212,12 @@ public final class AiAgentContracts {
             String apiId,
             String method,
             String path,
-            String domainTag,
-            JsonNode requestSchema,
-            JsonNode responseSchema,
-            Boolean authRequired,
+            List<String> tags,
+            @JsonProperty("request_body_schema")
+            JsonNode request_body_schema,
+            @JsonProperty("response_schema")
+            JsonNode response_schema,
+            ScenarioAuthPayload auth,
             Boolean deprecated
     ) {
     }
@@ -232,6 +236,10 @@ public final class AiAgentContracts {
             String name,
             String type,
             String description,
+            String testLevel,
+            JsonNode requestSpec,
+            JsonNode expectedSpec,
+            JsonNode assertionSpec,
             @JsonProperty("expected_status_code")
             Integer expected_status_code
     ) {
@@ -242,7 +250,6 @@ public final class AiAgentContracts {
     public record ScenarioGenerateResponse(
             String requestId,
             String generationId,
-            List<ScenarioPayload> scenarios,
             Boolean success,
             ScenarioGenerateDataPayload data,
             @JsonProperty("error_code")
@@ -293,11 +300,8 @@ public final class AiAgentContracts {
             JsonNode chained_variables,
             String apiId,
             String title,
-            String name,
             String description,
             String type,
-            @JsonProperty("test_case_type")
-            String test_case_type,
             String userRole,
             String stateCondition,
             String dataVariant,

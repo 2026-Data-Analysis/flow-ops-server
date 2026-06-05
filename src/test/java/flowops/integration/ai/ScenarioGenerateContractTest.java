@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
@@ -19,7 +21,7 @@ class ScenarioGenerateContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
-    void serializesScenarioGenerateRequestWithPdfSchemaFieldNames() throws Exception {
+    void serializesScenarioGenerateRequestWithExpectedFieldNames() throws Exception {
         ScenarioGenerateRequest request = new ScenarioGenerateRequest(
                 "scenario-generator",
                 "req-001",
@@ -32,11 +34,23 @@ class ScenarioGenerateContractTest {
                         "POST:/orders",
                         "POST",
                         "/orders",
-                        "Order",
+                        List.of("Order"),
                         objectMapper.readTree("{\"type\":\"object\"}"),
                         objectMapper.readTree("{\"type\":\"object\"}"),
-                        true,
+                        new ScenarioAuthPayload("bearer", "header"),
                         false
+                )),
+                List.of(new ScenarioExistingTestCasePayload(
+                        "101",
+                        "POST:/orders",
+                        "Existing order creation",
+                        "HAPPY_PATH",
+                        "Existing saved order creation test",
+                        "REGRESSION",
+                        objectMapper.readTree("{\"method\":\"POST\"}"),
+                        objectMapper.readTree("{\"statusCode\":201}"),
+                        objectMapper.readTree("{\"bodyContains\":[\"orderId\"]}"),
+                        201
                 )),
                 null
         );
@@ -44,47 +58,57 @@ class ScenarioGenerateContractTest {
         JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(request));
 
         assertThat(json.has("api_inventory")).isFalse();
-        assertThat(json.has("existing_test_cases")).isFalse();
-        assertThat(json.get("apis").get(0).has("request_body_schema")).isFalse();
         assertThat(json.get("apis").get(0).get("apiId").asText()).isEqualTo("POST:/orders");
-        assertThat(json.get("apis").get(0).get("requestSchema").get("type").asText()).isEqualTo("object");
-        assertThat(json.get("apis").get(0).get("responseSchema").get("type").asText()).isEqualTo("object");
+        assertThat(json.get("apis").get(0).get("tags").get(0).asText()).isEqualTo("Order");
+        assertThat(json.get("apis").get(0).get("request_body_schema").get("type").asText()).isEqualTo("object");
+        assertThat(json.get("apis").get(0).get("response_schema").get("type").asText()).isEqualTo("object");
+        assertThat(json.get("apis").get(0).get("auth").get("type").asText()).isEqualTo("bearer");
+        assertThat(json.get("apis").get(0).get("auth").get("location").asText()).isEqualTo("header");
+        assertThat(json.get("apis").get(0).has("requestSchema")).isFalse();
+        assertThat(json.get("apis").get(0).has("responseSchema")).isFalse();
+        assertThat(json.get("apis").get(0).has("authRequired")).isFalse();
+        assertThat(json.get("existing_test_cases").get(0).get("test_case_id").asText()).isEqualTo("101");
+        assertThat(json.get("existing_test_cases").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
+        assertThat(json.get("existing_test_cases").get(0).get("expected_status_code").asInt()).isEqualTo(201);
     }
 
     @Test
-    void deserializesScenarioStepsWithDraftLikeSpecFields() throws Exception {
+    void deserializesScenarioStepsFromDataScenarios() throws Exception {
         String body = """
                 {
                   "requestId": "req-001",
                   "generationId": "gen-001",
-                  "scenarios": [
-                    {
-                      "name": "Order flow",
-                      "type": "HAPPY_PATH",
-                      "steps": [
-                        {
-                          "apiId": "POST:/orders",
-                          "order": 1,
-                          "title": "정상 주문 생성",
-                          "requestSpec": {"method": "POST", "body": {"itemId": "item-123"}},
-                          "expectedSpec": {"statusCode": 201},
-                          "assertionSpec": {"bodyContains": ["orderId"]},
-                          "duplicate": false
-                        }
-                      ]
-                    }
-                  ]
+                  "success": true,
+                  "data": {
+                    "scenarios": [
+                      {
+                        "name": "Order flow",
+                        "type": "HAPPY_PATH",
+                        "steps": [
+                          {
+                            "apiId": "POST:/orders",
+                            "order": 1,
+                            "title": "Create order",
+                            "requestSpec": {"method": "POST", "body": {"itemId": "item-123"}},
+                            "expectedSpec": {"statusCode": 201},
+                            "assertionSpec": {"bodyContains": ["orderId"]},
+                            "duplicate": false
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
                 """;
 
         ScenarioGenerateResponse response = objectMapper.readValue(body, ScenarioGenerateResponse.class);
 
         assertThat(response.requestId()).isEqualTo("req-001");
-        assertThat(response.scenarios()).hasSize(1);
-        assertThat(response.scenarios().get(0).steps().get(0).title()).isEqualTo("정상 주문 생성");
-        assertThat(response.scenarios().get(0).steps().get(0).requestSpec().get("body").get("itemId").asText())
+        assertThat(response.data().scenarios()).hasSize(1);
+        assertThat(response.data().scenarios().get(0).steps().get(0).title()).isEqualTo("Create order");
+        assertThat(response.data().scenarios().get(0).steps().get(0).requestSpec().get("body").get("itemId").asText())
                 .isEqualTo("item-123");
-        assertThat(response.scenarios().get(0).steps().get(0).assertionSpec().get("bodyContains").get(0).asText())
+        assertThat(response.data().scenarios().get(0).steps().get(0).assertionSpec().get("bodyContains").get(0).asText())
                 .isEqualTo("orderId");
     }
 }

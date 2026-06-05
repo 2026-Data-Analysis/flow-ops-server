@@ -21,7 +21,9 @@ import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
@@ -41,11 +43,13 @@ import flowops.scenario.dto.response.ScenarioStepResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.repository.TestCaseRepository;
 import java.util.ArrayList;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,6 +72,7 @@ public class ScenarioService {
     private final ObjectMapper objectMapper;
     private final ExecutionStepLogRepository executionStepLogRepository;
     private final EnvironmentRepository environmentRepository;
+    private final TestCaseRepository testCaseRepository;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
@@ -265,7 +270,7 @@ public class ScenarioService {
     @Transactional(readOnly = true)
     public ScenarioGenerateResponse generateV2(RecommendScenarioRequest request) {
         if (request == null || request.appId() == null) {
-            return new ScenarioGenerateResponse(null, null, null, false, null, "INVALID_REQUEST", "appId is required", null);
+            return new ScenarioGenerateResponse(null, null, false, null, "INVALID_REQUEST", "appId is required", null);
         }
         App app = appService.getApp(request.appId());
         List<ApiInventory> inventories = scenarioInventories(app.getId(), request.apiIds());
@@ -382,6 +387,7 @@ public class ScenarioService {
                         userIntent(request)
                 ),
                 apis,
+                existingTestCases(app.getId()),
                 null
         );
     }
@@ -414,10 +420,10 @@ public class ScenarioService {
                 endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
                 inventory.getMethod().name(),
                 inventory.getEndpointPath(),
-                inventory.getDomainTag(),
+                tags(inventory.getDomainTag()),
                 parseJson(inventory.getRequestSchema()),
                 parseJson(inventory.getResponseSchema()),
-                inventory.isAuthRequired(),
+                authPayload(inventory.isAuthRequired()),
                 false
         );
     }
@@ -427,7 +433,7 @@ public class ScenarioService {
                 endpointId(endpoint.getMethod().name(), endpoint.getPath()),
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
-                endpoint.getDomainTag(),
+                tags(endpoint.getDomainTag()),
                 parseJson(endpoint.getRequestSchema()),
                 parseJson(endpoint.getResponseSchema()),
                 null,
@@ -435,8 +441,61 @@ public class ScenarioService {
         );
     }
 
+    private ScenarioAuthPayload authPayload(boolean authRequired) {
+        return authRequired
+                ? new ScenarioAuthPayload("bearer", "header")
+                : new ScenarioAuthPayload("none", null);
+    }
+
+    private List<String> tags(String domainTag) {
+        return domainTag == null || domainTag.isBlank() ? List.of() : List.of(domainTag);
+    }
+
     private String endpointId(String method, String path) {
         return method + ":" + path;
+    }
+
+    private List<ScenarioExistingTestCasePayload> existingTestCases(Long appId) {
+        return testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(appId).stream()
+                .map(this::toScenarioExistingTestCasePayload)
+                .toList();
+    }
+
+    private ScenarioExistingTestCasePayload toScenarioExistingTestCasePayload(TestCase testCase) {
+        String endpointId = testCase.getApiInventory() == null
+                ? endpointId(testCase.getApiEndpoint().getMethod().name(), testCase.getApiEndpoint().getPath())
+                : endpointId(testCase.getApiInventory().getMethod().name(), testCase.getApiInventory().getEndpointPath());
+        return new ScenarioExistingTestCasePayload(
+                String.valueOf(testCase.getId()),
+                endpointId,
+                testCase.getName(),
+                testCase.getType() == null ? null : testCase.getType().name(),
+                testCase.getDescription(),
+                testCase.getTestLevel() == null ? null : testCase.getTestLevel().name(),
+                parseJson(testCase.getRequestSpec()),
+                parseJson(testCase.getExpectedSpec()),
+                parseJson(testCase.getAssertionSpec()),
+                extractExpectedStatus(testCase.getExpectedSpec())
+        );
+    }
+
+    private Integer extractExpectedStatus(String expectedSpec) {
+        if (expectedSpec == null || expectedSpec.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(expectedSpec);
+            JsonNode statusCode = node.path("statusCode");
+            if (!statusCode.isMissingNode() && statusCode.isInt()) {
+                return statusCode.intValue();
+            }
+            JsonNode status = node.path("status");
+            if (!status.isMissingNode() && status.isInt()) {
+                return status.intValue();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private ScenarioRecommendationResponse toRecommendation(
@@ -476,9 +535,6 @@ public class ScenarioService {
         if (step.title() != null && !step.title().isBlank()) {
             return step.title();
         }
-        if (step.name() != null && !step.name().isBlank()) {
-            return step.name();
-        }
         return step.description();
     }
 
@@ -510,9 +566,6 @@ public class ScenarioService {
     private List<ScenarioPayload> scenarios(ScenarioGenerateResponse response) {
         if (response == null) {
             return List.of();
-        }
-        if (response.scenarios() != null) {
-            return response.scenarios();
         }
         if (response.data() != null && response.data().scenarios() != null) {
             return response.data().scenarios();

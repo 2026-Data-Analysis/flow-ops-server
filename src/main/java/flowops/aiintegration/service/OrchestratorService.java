@@ -15,6 +15,7 @@ import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ReportContextPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
@@ -168,10 +169,10 @@ public class OrchestratorService {
                         textOrNull(ep, "endpoint_id"),
                         textOrNull(ep, "method"),
                         textOrNull(ep, "path"),
-                        null,
+                        List.of(),
                         ep.get("requestSchema") == null ? ep.get("request_body_schema") : ep.get("requestSchema"),
                         ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema"),
-                        null,
+                        authPayload(ep.get("auth")),
                         null
                 ));
             }
@@ -186,6 +187,7 @@ public class OrchestratorService {
                 new MetadataPayload("ko", LocalDateTime.now(), "orchestrator"),
                 new TestGenerationContext(null, "STANDARD", null, null, null, request.userPrompt()),
                 endpoints,
+                List.of(),
                 null
         );
 
@@ -201,6 +203,21 @@ public class OrchestratorService {
                         count + "개의 시나리오가 생성되었습니다."),
                 null, null, traceId
         );
+    }
+
+    private ScenarioAuthPayload authPayload(JsonNode auth) {
+        if (auth == null || auth.isNull()) {
+            return null;
+        }
+        if (auth.isBoolean()) {
+            return auth.asBoolean()
+                    ? new ScenarioAuthPayload("bearer", "header")
+                    : new ScenarioAuthPayload("none", null);
+        }
+        if (auth.isObject()) {
+            return new ScenarioAuthPayload(textOrNull(auth, "type"), textOrNull(auth, "location"));
+        }
+        return null;
     }
 
     private List<RootCause> buildRootCauses(LogAnalysisResponse logRes, ErrorReportResponse reportRes) {
