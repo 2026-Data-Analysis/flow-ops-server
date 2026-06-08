@@ -64,6 +64,9 @@ public class AgentTestCaseGenerateService {
                 api.domainTag(),
                 api.requestSchema(),
                 api.responseSchema(),
+                api.expectedStatusCodes(),
+                api.errorStatusCodes(),
+                api.errorCodes(),
                 api.authRequired(),
                 api.deprecated()
         );

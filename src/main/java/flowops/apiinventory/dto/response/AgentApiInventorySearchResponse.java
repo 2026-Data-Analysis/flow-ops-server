@@ -72,6 +72,15 @@ public record AgentApiInventorySearchResponse(
             @Schema(description = "응답 스키마")
             JsonNode responseSchema,
 
+            @Schema(description = "성공 응답으로 기대할 수 있는 HTTP 상태 코드 목록", example = "[200,201]")
+            List<Integer> expectedStatusCodes,
+
+            @Schema(description = "오류 응답으로 발생할 수 있는 HTTP 상태 코드 목록", example = "[400,401,500]")
+            List<Integer> errorStatusCodes,
+
+            @Schema(description = "응답 예시에서 추출한 오류 코드 목록", example = "[\"COMMON-400\",\"ORDER-404\"]")
+            List<String> errorCodes,
+
             @Schema(description = "인증 필요 여부", example = "true")
             Boolean authRequired,
 

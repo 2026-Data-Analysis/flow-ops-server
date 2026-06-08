@@ -152,13 +152,18 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     }
 
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
+        JsonNode requestSchema = parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema());
+        JsonNode responseSchema = parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema());
         return new TestCaseApiPayload(
                 apiId,           // apiId
                 endpoint.getMethod().name(),
                 endpoint.getPath(),
                 endpoint.getDomainTag(),
-                parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema()),
-                parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema()),
+                requestSchema,
+                responseSchema,
+                integerArray(responseSchema, "expectedStatusCodes"),
+                integerArray(responseSchema, "errorStatusCodes"),
+                errorCodes(responseSchema),
                 inventory == null ? null : inventory.isAuthRequired(),
                 endpoint.isDeprecated()
         );
@@ -319,6 +324,38 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
             return objectMapper.readTree(value);
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(value);
+        }
+    }
+
+    private List<Integer> integerArray(JsonNode root, String fieldName) {
+        if (root == null || !root.has(fieldName) || !root.get(fieldName).isArray()) {
+            return List.of();
+        }
+        List<Integer> values = new ArrayList<>();
+        root.get(fieldName).forEach(value -> {
+            if (value.canConvertToInt()) {
+                values.add(value.intValue());
+            }
+        });
+        return values;
+    }
+
+    private List<String> errorCodes(JsonNode responseSchema) {
+        if (responseSchema == null || !responseSchema.has("responses") || !responseSchema.get("responses").isArray()) {
+            return List.of();
+        }
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        responseSchema.get("responses").forEach(response -> {
+            JsonNode sampleBody = response.path("sampleBody");
+            addTextField(codes, sampleBody, "errorCode");
+            addTextField(codes, sampleBody, "code");
+        });
+        return List.copyOf(codes);
+    }
+
+    private void addTextField(LinkedHashSet<String> values, JsonNode node, String fieldName) {
+        if (node != null && node.hasNonNull(fieldName) && node.get(fieldName).isTextual()) {
+            values.add(node.get(fieldName).asText());
         }
     }
 

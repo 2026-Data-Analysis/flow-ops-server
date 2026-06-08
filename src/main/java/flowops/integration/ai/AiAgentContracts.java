@@ -88,6 +88,9 @@ public final class AiAgentContracts {
             JsonNode requestSchema,
             @JsonProperty("response_schema")
             JsonNode responseSchema,
+            List<Integer> expectedStatusCodes,
+            List<Integer> errorStatusCodes,
+            List<String> errorCodes,
             Boolean authRequired,
             Boolean deprecated
     ) {

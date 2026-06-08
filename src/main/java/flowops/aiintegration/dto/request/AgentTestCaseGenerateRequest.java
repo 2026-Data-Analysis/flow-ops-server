@@ -29,6 +29,9 @@ public record AgentTestCaseGenerateRequest(
             String domainTag,
             JsonNode requestSchema,
             JsonNode responseSchema,
+            List<Integer> expectedStatusCodes,
+            List<Integer> errorStatusCodes,
+            List<String> errorCodes,
             Boolean authRequired,
             Boolean deprecated
     ) {

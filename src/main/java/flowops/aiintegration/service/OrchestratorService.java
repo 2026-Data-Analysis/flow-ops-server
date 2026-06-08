@@ -124,6 +124,9 @@ public class OrchestratorService {
                         null,
                         ep.get("request_body_schema"),
                         ep.get("response_schema"),
+                        integerArray(ep, "expected_status_codes"),
+                        integerArray(ep, "error_status_codes"),
+                        stringArray(ep, "error_codes"),
                         null,
                         null
                 ));
@@ -253,5 +256,31 @@ public class OrchestratorService {
     private String textOrNull(JsonNode node, String field) {
         if (node == null || !node.has(field) || node.get(field).isNull()) return null;
         return node.get(field).asText();
+    }
+
+    private List<Integer> integerArray(JsonNode node, String field) {
+        if (node == null || !node.has(field) || !node.get(field).isArray()) {
+            return List.of();
+        }
+        List<Integer> values = new ArrayList<>();
+        node.get(field).forEach(value -> {
+            if (value.canConvertToInt()) {
+                values.add(value.intValue());
+            }
+        });
+        return values;
+    }
+
+    private List<String> stringArray(JsonNode node, String field) {
+        if (node == null || !node.has(field) || !node.get(field).isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        node.get(field).forEach(value -> {
+            if (value.isTextual()) {
+                values.add(value.asText());
+            }
+        });
+        return values;
     }
 }

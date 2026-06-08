@@ -28,6 +28,7 @@ import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -248,6 +249,8 @@ public class ApiInventoryService {
     }
 
     private AgentApiSpec toAgentApiSpec(ApiInventory apiInventory) {
+        JsonNode requestSchema = parseJson(apiInventory.getRequestSchema());
+        JsonNode responseSchema = parseJson(apiInventory.getResponseSchema());
         return new AgentApiSpec(
                 String.valueOf(apiInventory.getId()),
                 apiInventory.getId(),
@@ -258,8 +261,11 @@ public class ApiInventoryService {
                 apiInventory.getOperationId(),
                 apiInventory.getSummary(),
                 apiInventory.getBranchName(),
-                parseJson(apiInventory.getRequestSchema()),
-                parseJson(apiInventory.getResponseSchema()),
+                requestSchema,
+                responseSchema,
+                integerArray(responseSchema, "expectedStatusCodes"),
+                integerArray(responseSchema, "errorStatusCodes"),
+                errorCodes(responseSchema),
                 apiInventory.isAuthRequired(),
                 false
         );
@@ -304,6 +310,38 @@ public class ApiInventoryService {
             return objectMapper.readTree(value);
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(value);
+        }
+    }
+
+    private List<Integer> integerArray(JsonNode root, String fieldName) {
+        if (root == null || !root.has(fieldName) || !root.get(fieldName).isArray()) {
+            return List.of();
+        }
+        List<Integer> values = new java.util.ArrayList<>();
+        root.get(fieldName).forEach(value -> {
+            if (value.canConvertToInt()) {
+                values.add(value.intValue());
+            }
+        });
+        return values;
+    }
+
+    private List<String> errorCodes(JsonNode responseSchema) {
+        if (responseSchema == null || !responseSchema.has("responses") || !responseSchema.get("responses").isArray()) {
+            return List.of();
+        }
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        responseSchema.get("responses").forEach(response -> {
+            JsonNode sampleBody = response.path("sampleBody");
+            addTextField(codes, sampleBody, "errorCode");
+            addTextField(codes, sampleBody, "code");
+        });
+        return List.copyOf(codes);
+    }
+
+    private void addTextField(LinkedHashSet<String> values, JsonNode node, String fieldName) {
+        if (node != null && node.hasNonNull(fieldName) && node.get(fieldName).isTextual()) {
+            values.add(node.get(fieldName).asText());
         }
     }
 
