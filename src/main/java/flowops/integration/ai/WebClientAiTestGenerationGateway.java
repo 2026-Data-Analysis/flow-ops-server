@@ -152,8 +152,8 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
     }
 
     private TestCaseApiPayload toTestCaseApiPayload(String apiId, ApiEndpoint endpoint, ApiInventory inventory) {
-        JsonNode requestSchema = parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema());
-        JsonNode responseSchema = parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema());
+        JsonNode requestSchema = meaningfulJsonOrNull(parseJson(inventory == null ? endpoint.getRequestSchema() : inventory.getRequestSchema()));
+        JsonNode responseSchema = meaningfulJsonOrNull(parseJson(inventory == null ? endpoint.getResponseSchema() : inventory.getResponseSchema()));
         return new TestCaseApiPayload(
                 apiId,           // apiId
                 endpoint.getMethod().name(),
@@ -194,9 +194,9 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         testCase.getName(),
                         testCase.getType().name(),
                         testCase.getTestLevel().name(),
-                        parseJson(testCase.getRequestSpec()),
-                        parseJson(testCase.getExpectedSpec()),
-                        parseJson(testCase.getAssertionSpec())
+                        meaningfulJsonOrNull(parseJson(testCase.getRequestSpec())),
+                        meaningfulJsonOrNull(parseJson(testCase.getExpectedSpec())),
+                        meaningfulJsonOrNull(parseJson(testCase.getAssertionSpec()))
                 ))
                 .toList();
     }
@@ -325,6 +325,10 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(value);
         }
+    }
+
+    private JsonNode meaningfulJsonOrNull(JsonNode value) {
+        return hasMeaningfulJson(value) ? value : objectMapper.nullNode();
     }
 
     private List<Integer> integerArray(JsonNode root, String fieldName) {

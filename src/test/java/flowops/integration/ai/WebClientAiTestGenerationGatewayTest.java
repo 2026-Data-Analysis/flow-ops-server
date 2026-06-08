@@ -16,6 +16,10 @@ import flowops.app.domain.entity.App;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.domain.entity.TestCaseSource;
+import flowops.testcase.domain.entity.TestCaseType;
+import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
 import flowops.testgeneration.domain.entity.TestGeneration;
 import flowops.testgeneration.domain.entity.TestGenerationStatus;
@@ -92,6 +96,32 @@ class WebClientAiTestGenerationGatewayTest {
     }
 
     @Test
+    void generateDraftsNormalizesEmptyJsonPayloadFieldsToNull() {
+        App app = app(41L);
+        TestGeneration generation = generation(57L, app);
+        ApiEndpoint endpoint = endpoint(2059L, app, "{}", "[]");
+        TestCase existingTestCase = testCase(app, endpoint);
+
+        when(apiInventoryRepository.findById(2059L)).thenReturn(Optional.empty());
+        when(apiEndpointService.getApiEndpoint(2059L)).thenReturn(endpoint);
+        when(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(List.of(2059L)))
+                .thenReturn(List.of(existingTestCase));
+        when(aiClient.generateTestCaseDrafts(any(TestCaseGeneratorRequest.class)))
+                .thenReturn(new TestCaseGeneratorResponse("req-1", "57", List.of()));
+
+        gateway().generateDrafts(generation, List.of(2059L), null);
+
+        ArgumentCaptor<TestCaseGeneratorRequest> captor = ArgumentCaptor.forClass(TestCaseGeneratorRequest.class);
+        verify(aiClient).generateTestCaseDrafts(captor.capture());
+        TestCaseGeneratorRequest request = captor.getValue();
+        assertThat(request.apis().get(0).requestSchema().isNull()).isTrue();
+        assertThat(request.apis().get(0).responseSchema().isNull()).isTrue();
+        assertThat(request.existingTestCases().get(0).requestSpec().isNull()).isTrue();
+        assertThat(request.existingTestCases().get(0).expectedSpec().isNull()).isTrue();
+        assertThat(request.existingTestCases().get(0).assertionSpec().isNull()).isTrue();
+    }
+
+    @Test
     void generateDraftsStoresExecutionEndpointFromAiResponseInRequestSpec() throws Exception {
         App app = app(41L);
         TestGeneration generation = generation(57L, app);
@@ -146,17 +176,40 @@ class WebClientAiTestGenerationGatewayTest {
     }
 
     private ApiEndpoint endpoint(Long id, App app) {
+        return endpoint(id, app, "{\"type\":\"object\"}", "{\"status\":201}");
+    }
+
+    private ApiEndpoint endpoint(Long id, App app, String requestSchema, String responseSchema) {
         ApiEndpoint endpoint = ApiEndpoint.builder()
                 .app(app)
                 .method(ApiMethod.POST)
                 .path("/orders")
                 .domainTag("orders")
-                .requestSchema("{\"type\":\"object\"}")
-                .responseSchema("{\"status\":201}")
+                .requestSchema(requestSchema)
+                .responseSchema(responseSchema)
                 .deprecated(false)
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", id);
         return endpoint;
+    }
+
+    private TestCase testCase(App app, ApiEndpoint endpoint) {
+        TestCase testCase = TestCase.builder()
+                .app(app)
+                .apiEndpoint(endpoint)
+                .name("Existing empty spec case")
+                .description("Existing test case with empty JSON specs.")
+                .type(TestCaseType.HAPPY_PATH)
+                .testLevel(TestLevel.REGRESSION)
+                .source(TestCaseSource.AUTO)
+                .requestSpec("{}")
+                .expectedSpec("{}")
+                .assertionSpec("[]")
+                .active(true)
+                .version(1)
+                .build();
+        ReflectionTestUtils.setField(testCase, "id", 3001L);
+        return testCase;
     }
 
     private TestCaseGeneratorResponse response(String apiId) {
