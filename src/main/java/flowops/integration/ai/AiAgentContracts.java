@@ -25,7 +25,10 @@ public final class AiAgentContracts {
             String environmentId,
             String name,
             String baseUrl,
-            String defaultTestLevel
+            String defaultTestLevel,
+            String authType,
+            JsonNode authConfig,
+            JsonNode headers
     ) {
     }
 
@@ -134,8 +137,8 @@ public final class AiAgentContracts {
             String title,
             String description,
             String type,
-            @JsonProperty("test_case_type")
-            String test_case_type,
+            @JsonProperty("risk_level")
+            String risk_level,
             String userRole,
             String stateCondition,
             String dataVariant,
@@ -188,19 +191,21 @@ public final class AiAgentContracts {
     }
 
     @Schema(description = "시나리오 빌더 AI 에이전트 요청")
-    @JsonInclude(JsonInclude.Include.ALWAYS)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScenarioGenerateRequest(
-            String agent,
-            String requestId,
-            String requestedBy,
-            ProjectPayload project,
-            EnvironmentPayload environment,
-            MetadataPayload metadata,
-            TestGenerationContext generationContext,
-            List<ScenarioEndpointPayload> apis,
+            @JsonProperty("project_id")
+            String project_id,
+            String mode,
+            @JsonProperty("user_intent")
+            String user_intent,
+            @JsonProperty("api_inventory")
+            ScenarioApiInventoryPayload api_inventory,
             @JsonProperty("existing_test_cases")
             List<ScenarioExistingTestCasePayload> existing_test_cases,
-            FailureContextPayload failureContext
+            @JsonProperty("max_scenarios")
+            Integer max_scenarios,
+            @JsonProperty("max_steps_per_scenario")
+            Integer max_steps_per_scenario
     ) {
     }
 
@@ -211,17 +216,18 @@ public final class AiAgentContracts {
     ) {
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScenarioEndpointPayload(
-            String apiId,
-            String method,
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
             String path,
-            List<String> tags,
+            String method,
+            String summary,
+            ScenarioAuthPayload auth,
             @JsonProperty("request_body_schema")
             JsonNode request_body_schema,
             @JsonProperty("response_schema")
-            JsonNode response_schema,
-            ScenarioAuthPayload auth,
-            Boolean deprecated
+            JsonNode response_schema
     ) {
     }
 

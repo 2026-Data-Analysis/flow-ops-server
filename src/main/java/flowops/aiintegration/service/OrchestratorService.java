@@ -16,6 +16,7 @@ import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ReportContextPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
@@ -138,7 +139,15 @@ public class OrchestratorService {
                 UUID.randomUUID().toString(),
                 "orchestrator",
                 new ProjectPayload(projectId, null, null),
-                new flowops.integration.ai.AiAgentContracts.EnvironmentPayload(null, envName, baseUrl, null),
+                new flowops.integration.ai.AiAgentContracts.EnvironmentPayload(
+                        null,
+                        envName,
+                        baseUrl,
+                        null,
+                        textOrNull(ctx, "auth_type"),
+                        ctx.get("auth_config"),
+                        ctx.get("headers")
+                ),
                 new MetadataPayload("ko", LocalDateTime.now(), "orchestrator"),
                 new flowops.integration.ai.AiAgentContracts.TestGenerationContext(
                         null, "FROM_SCRATCH", null, null, null, request.userPrompt()),
@@ -163,35 +172,39 @@ public class OrchestratorService {
     private OrchestratorDispatchResponse dispatchScenario(OrchestratorDispatchRequest request, String traceId) {
         JsonNode ctx = request.context();
         String projectId = request.projectId() != null ? request.projectId() : "unknown";
+        String mode = textOrNull(ctx, "mode");
+        if (mode == null || mode.isBlank()) {
+            mode = request.userPrompt() == null || request.userPrompt().isBlank() ? "RECOMMEND" : "NATURAL_LANGUAGE";
+        }
 
         List<ScenarioEndpointPayload> endpoints = new ArrayList<>();
         JsonNode inventory = ctx.get("api_inventory");
+        String inventoryProjectId = textOrNull(inventory, "project_id");
+        if (inventoryProjectId != null && !inventoryProjectId.isBlank()) {
+            projectId = inventoryProjectId;
+        }
         if (inventory != null && inventory.has("endpoints")) {
             for (JsonNode ep : inventory.get("endpoints")) {
                 endpoints.add(new ScenarioEndpointPayload(
                         textOrNull(ep, "endpoint_id"),
-                        textOrNull(ep, "method"),
                         textOrNull(ep, "path"),
-                        List.of(),
-                        ep.get("requestSchema") == null ? ep.get("request_body_schema") : ep.get("requestSchema"),
-                        ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema"),
+                        textOrNull(ep, "method"),
+                        textOrNull(ep, "summary"),
                         authPayload(ep.get("auth")),
-                        null
+                        ep.get("requestSchema") == null ? ep.get("request_body_schema") : ep.get("requestSchema"),
+                        ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema")
                 ));
             }
         }
 
         ScenarioGenerateRequest aiReq = new ScenarioGenerateRequest(
-                "scenario-generator",
-                UUID.randomUUID().toString(),
-                "orchestrator",
-                new ProjectPayload(projectId, null, null),
-                null,
-                new MetadataPayload("ko", LocalDateTime.now(), "orchestrator"),
-                new TestGenerationContext(null, "STANDARD", null, null, null, request.userPrompt()),
-                endpoints,
-                List.of(),
-                null
+                projectId,
+                mode,
+                "NATURAL_LANGUAGE".equals(mode) ? request.userPrompt() : null,
+                new ScenarioApiInventoryPayload(projectId, endpoints),
+                "RECOMMEND".equals(mode) ? List.of() : null,
+                intOrNull(ctx, "max_scenarios"),
+                intOrNull(ctx, "max_steps_per_scenario")
         );
 
         ScenarioGenerateResponse res = aiClient.buildScenario(aiReq);
@@ -256,6 +269,13 @@ public class OrchestratorService {
     private String textOrNull(JsonNode node, String field) {
         if (node == null || !node.has(field) || node.get(field).isNull()) return null;
         return node.get(field).asText();
+    }
+
+    private Integer intOrNull(JsonNode node, String field) {
+        if (node == null || !node.has(field) || node.get(field).isNull() || !node.get(field).canConvertToInt()) {
+            return null;
+        }
+        return node.get(field).asInt();
     }
 
     private List<Integer> integerArray(JsonNode node, String field) {

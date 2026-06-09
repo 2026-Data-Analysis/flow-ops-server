@@ -4,15 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import flowops.integration.ai.AiAgentContracts.MetadataPayload;
-import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
-import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -21,25 +18,65 @@ class ScenarioGenerateContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
-    void serializesScenarioGenerateRequestWithExpectedFieldNames() throws Exception {
+    void serializesNaturalLanguageScenarioGenerateRequestWithExpectedFieldNames() throws Exception {
         ScenarioGenerateRequest request = new ScenarioGenerateRequest(
-                "scenario-generator",
-                "req-001",
-                "qa",
-                new ProjectPayload("project-1", "1", "FlowOps"),
+                "project-1",
+                "NATURAL_LANGUAGE",
+                "회원가입 후 주문까지 이어지는 흐름",
+                new ScenarioApiInventoryPayload(
+                        "project-1",
+                        List.of(new ScenarioEndpointPayload(
+                                "POST:/orders",
+                                "/orders",
+                                "POST",
+                                "Order",
+                                new ScenarioAuthPayload("bearer", "header"),
+                                objectMapper.readTree("{\"type\":\"object\"}"),
+                                objectMapper.readTree("{\"type\":\"object\"}")
+                        ))
+                ),
                 null,
-                new MetadataPayload("ko", LocalDateTime.parse("2026-06-05T15:00:00"), "flowops"),
-                new TestGenerationContext("gen-001", "RECOMMEND", "REGRESSION", null, null, "checkout"),
-                List.of(new ScenarioEndpointPayload(
-                        "POST:/orders",
-                        "POST",
-                        "/orders",
-                        List.of("Order"),
-                        objectMapper.readTree("{\"type\":\"object\"}"),
-                        objectMapper.readTree("{\"type\":\"object\"}"),
-                        new ScenarioAuthPayload("bearer", "header"),
-                        false
-                )),
+                2,
+                5
+        );
+
+        JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(request));
+
+        assertThat(json.get("project_id").asText()).isEqualTo("project-1");
+        assertThat(json.get("mode").asText()).isEqualTo("NATURAL_LANGUAGE");
+        assertThat(json.get("user_intent").asText()).isEqualTo("회원가입 후 주문까지 이어지는 흐름");
+        assertThat(json.get("api_inventory").get("project_id").asText()).isEqualTo("project-1");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("summary").asText()).isEqualTo("Order");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("request_body_schema").get("type").asText()).isEqualTo("object");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("response_schema").get("type").asText()).isEqualTo("object");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("auth").get("type").asText()).isEqualTo("bearer");
+        assertThat(json.get("max_scenarios").asInt()).isEqualTo(2);
+        assertThat(json.get("max_steps_per_scenario").asInt()).isEqualTo(5);
+        assertThat(json.has("agent")).isFalse();
+        assertThat(json.has("requestId")).isFalse();
+        assertThat(json.has("apis")).isFalse();
+        assertThat(json.has("existing_test_cases")).isFalse();
+    }
+
+    @Test
+    void serializesRecommendScenarioGenerateRequestWithExpectedFieldNames() throws Exception {
+        ScenarioGenerateRequest request = new ScenarioGenerateRequest(
+                "project-1",
+                "RECOMMEND",
+                null,
+                new ScenarioApiInventoryPayload(
+                        "project-1",
+                        List.of(new ScenarioEndpointPayload(
+                                "POST:/orders",
+                                "/orders",
+                                "POST",
+                                "Order",
+                                new ScenarioAuthPayload("bearer", "header"),
+                                objectMapper.readTree("{\"type\":\"object\"}"),
+                                objectMapper.readTree("{\"type\":\"object\"}")
+                        ))
+                ),
                 List.of(new ScenarioExistingTestCasePayload(
                         "101",
                         "POST:/orders",
@@ -52,24 +89,21 @@ class ScenarioGenerateContractTest {
                         objectMapper.readTree("{\"bodyContains\":[\"orderId\"]}"),
                         201
                 )),
+                3,
                 null
         );
 
         JsonNode json = objectMapper.readTree(objectMapper.writeValueAsString(request));
 
-        assertThat(json.has("api_inventory")).isFalse();
-        assertThat(json.get("apis").get(0).get("apiId").asText()).isEqualTo("POST:/orders");
-        assertThat(json.get("apis").get(0).get("tags").get(0).asText()).isEqualTo("Order");
-        assertThat(json.get("apis").get(0).get("request_body_schema").get("type").asText()).isEqualTo("object");
-        assertThat(json.get("apis").get(0).get("response_schema").get("type").asText()).isEqualTo("object");
-        assertThat(json.get("apis").get(0).get("auth").get("type").asText()).isEqualTo("bearer");
-        assertThat(json.get("apis").get(0).get("auth").get("location").asText()).isEqualTo("header");
-        assertThat(json.get("apis").get(0).has("requestSchema")).isFalse();
-        assertThat(json.get("apis").get(0).has("responseSchema")).isFalse();
-        assertThat(json.get("apis").get(0).has("authRequired")).isFalse();
+        assertThat(json.get("project_id").asText()).isEqualTo("project-1");
+        assertThat(json.get("mode").asText()).isEqualTo("RECOMMEND");
+        assertThat(json.has("user_intent")).isFalse();
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
         assertThat(json.get("existing_test_cases").get(0).get("test_case_id").asText()).isEqualTo("101");
         assertThat(json.get("existing_test_cases").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
         assertThat(json.get("existing_test_cases").get(0).get("expected_status_code").asInt()).isEqualTo(201);
+        assertThat(json.get("max_scenarios").asInt()).isEqualTo(3);
+        assertThat(json.has("max_steps_per_scenario")).isFalse();
     }
 
     @Test

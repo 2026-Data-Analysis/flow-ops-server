@@ -22,6 +22,10 @@ public record RecommendScenarioRequest(
         @Schema(description = "요청자", example = "qa.lead@flowops.dev")
         String requestedBy,
         @ArraySchema(schema = @Schema(description = "추천에 사용할 API ID. 비어 있으면 앱의 전체 API를 사용합니다.", example = "10"))
-        List<Long> apiIds
+        List<Long> apiIds,
+        @Schema(description = "AI가 생성할 시나리오 최대 개수")
+        Integer maxScenarios,
+        @Schema(description = "시나리오별 최대 step 개수")
+        Integer maxStepsPerScenario
 ) {
 }

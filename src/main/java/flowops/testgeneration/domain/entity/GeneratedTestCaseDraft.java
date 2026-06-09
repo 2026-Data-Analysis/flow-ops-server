@@ -48,6 +48,9 @@ public class GeneratedTestCaseDraft {
     @Column(name = "draft_type", length = 40)
     private String type;
 
+    @Column(name = "risk_level", length = 20)
+    private String riskLevel;
+
     @Column(name = "user_role", length = 100)
     private String userRole;
 
@@ -83,6 +86,7 @@ public class GeneratedTestCaseDraft {
             String title,
             String description,
             String type,
+            String riskLevel,
             String userRole,
             String stateCondition,
             String dataVariant,
@@ -99,6 +103,7 @@ public class GeneratedTestCaseDraft {
         this.title = title;
         this.description = description;
         this.type = type;
+        this.riskLevel = riskLevel;
         this.userRole = userRole;
         this.stateCondition = stateCondition;
         this.dataVariant = dataVariant;

@@ -22,6 +22,7 @@ import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
@@ -209,7 +210,7 @@ public class ScenarioService {
                 inventories.size(),
                 endpoints.size(),
                 aiEndpoints.size(),
-                aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::apiId).toList());
+                aiEndpoints.stream().limit(5).map(ScenarioEndpointPayload::endpoint_id).toList());
 
         log.info("Calling AI scenario generator. appId={}, projectId={}, mode={}, apiCount={}, requestedBy={}, mockEnabled={}",
                 app.getId(),
@@ -367,42 +368,54 @@ public class ScenarioService {
             String projectId,
             List<ScenarioEndpointPayload> apis
     ) {
-        String requestId = UUID.randomUUID().toString();
-        Environment environment = request.environmentId() == null
-                ? null
-                : environmentRepository.findById(request.environmentId()).orElse(null);
+        String mode = scenarioMode(request);
         return new ScenarioGenerateRequest(
-                "scenario-generator",
-                requestId,
-                request.requestedBy(),
-                new ProjectPayload(projectId, String.valueOf(app.getId()), app.getName()),
-                environmentPayload(request, environment),
-                new MetadataPayload("ko", LocalDateTime.now(), "flowops"),
-                new TestGenerationContext(
-                        requestId,
-                        scenarioMode(request),
-                        testLevel(request, environment),
-                        null,
-                        null,
-                        userIntent(request)
-                ),
-                apis,
-                existingTestCases(app.getId()),
-                null
+                projectId,
+                mode,
+                "NATURAL_LANGUAGE".equals(mode) ? userIntent(request) : null,
+                new ScenarioApiInventoryPayload(projectId, apis),
+                "RECOMMEND".equals(mode) ? existingTestCases(app.getId()) : null,
+                maxScenarios(request, mode),
+                maxStepsPerScenario(request, mode)
         );
+    }
+
+    private Integer maxScenarios(RecommendScenarioRequest request, String mode) {
+        if (request.maxScenarios() != null) {
+            return request.maxScenarios();
+        }
+        return "NATURAL_LANGUAGE".equals(mode) ? 2 : 3;
+    }
+
+    private Integer maxStepsPerScenario(RecommendScenarioRequest request, String mode) {
+        if (request.maxStepsPerScenario() != null) {
+            return request.maxStepsPerScenario();
+        }
+        return "NATURAL_LANGUAGE".equals(mode) ? 5 : null;
     }
 
     private EnvironmentPayload environmentPayload(RecommendScenarioRequest request, Environment environment) {
         if (environment == null) {
             return request.environmentId() == null
                     ? null
-                    : new EnvironmentPayload(String.valueOf(request.environmentId()), null, null, null);
+                    : new EnvironmentPayload(
+                            String.valueOf(request.environmentId()),
+                            null,
+                            null,
+                            null,
+                            null,
+                            objectMapper.nullNode(),
+                            objectMapper.nullNode()
+                    );
         }
         return new EnvironmentPayload(
                 String.valueOf(environment.getId()),
                 environment.getName(),
                 environment.getBaseUrl(),
-                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
+                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name(),
+                environment.getAuthType() == null ? null : environment.getAuthType().name(),
+                meaningfulJsonOrNull(parseJson(environment.getAuthConfig())),
+                meaningfulJsonOrNull(parseJson(environment.getHeaders()))
         );
     }
 
@@ -418,26 +431,24 @@ public class ScenarioService {
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiInventory inventory) {
         return new ScenarioEndpointPayload(
                 endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
-                inventory.getMethod().name(),
                 inventory.getEndpointPath(),
-                tags(inventory.getDomainTag()),
-                parseJson(inventory.getRequestSchema()),
-                parseJson(inventory.getResponseSchema()),
+                inventory.getMethod().name(),
+                inventory.getSummary(),
                 authPayload(inventory.isAuthRequired()),
-                false
+                parseJson(inventory.getRequestSchema()),
+                parseJson(inventory.getResponseSchema())
         );
     }
 
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiEndpoint endpoint) {
         return new ScenarioEndpointPayload(
                 endpointId(endpoint.getMethod().name(), endpoint.getPath()),
-                endpoint.getMethod().name(),
                 endpoint.getPath(),
-                tags(endpoint.getDomainTag()),
-                parseJson(endpoint.getRequestSchema()),
-                parseJson(endpoint.getResponseSchema()),
+                endpoint.getMethod().name(),
+                endpoint.getDomainTag(),
                 null,
-                endpoint.isDeprecated()
+                parseJson(endpoint.getRequestSchema()),
+                parseJson(endpoint.getResponseSchema())
         );
     }
 
@@ -638,6 +649,17 @@ public class ScenarioService {
         } catch (Exception ignored) {
             return objectMapper.getNodeFactory().textNode(value);
         }
+    }
+
+    private JsonNode meaningfulJsonOrNull(JsonNode value) {
+        return value != null
+                && !value.isNull()
+                && !value.isMissingNode()
+                && !(value.isObject() && value.isEmpty())
+                && !(value.isArray() && value.isEmpty())
+                && !(value.isTextual() && value.asText().isBlank())
+                ? value
+                : objectMapper.nullNode();
     }
 
     @Transactional

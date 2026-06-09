@@ -13,6 +13,9 @@ import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
+import flowops.environment.domain.entity.AuthType;
+import flowops.environment.domain.entity.Environment;
+import flowops.environment.domain.entity.TestLevelSource;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
@@ -122,6 +125,33 @@ class WebClientAiTestGenerationGatewayTest {
     }
 
     @Test
+    void generateDraftsSendsEnvironmentExecutionContextInPayload() {
+        App app = app(41L);
+        TestGeneration generation = generation(57L, app);
+        Environment environment = environment(app);
+        ApiEndpoint endpoint = endpoint(2059L, app);
+
+        when(apiInventoryRepository.findById(2059L)).thenReturn(Optional.empty());
+        when(apiEndpointService.getApiEndpoint(2059L)).thenReturn(endpoint);
+        when(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(List.of(2059L)))
+                .thenReturn(List.of());
+        when(aiClient.generateTestCaseDrafts(any(TestCaseGeneratorRequest.class)))
+                .thenReturn(new TestCaseGeneratorResponse("req-1", "57", List.of()));
+
+        gateway().generateDrafts(generation, List.of(2059L), environment);
+
+        ArgumentCaptor<TestCaseGeneratorRequest> captor = ArgumentCaptor.forClass(TestCaseGeneratorRequest.class);
+        verify(aiClient).generateTestCaseDrafts(captor.capture());
+        assertThat(captor.getValue().environment().environmentId()).isEqualTo("901");
+        assertThat(captor.getValue().environment().baseUrl()).isEqualTo("https://api.example.com");
+        assertThat(captor.getValue().environment().defaultTestLevel()).isEqualTo("SMOKE");
+        assertThat(captor.getValue().environment().authType()).isEqualTo("BEARER");
+        assertThat(captor.getValue().environment().authConfig().path("token").asText()).isEqualTo("sample-token");
+        assertThat(captor.getValue().environment().headers().path("Authorization").asText()).isEqualTo("Bearer sample-token");
+        assertThat(captor.getValue().environment().headers().path("X-Tenant").asText()).isEqualTo("tenant-a");
+    }
+
+    @Test
     void generateDraftsStoresExecutionEndpointFromAiResponseInRequestSpec() throws Exception {
         App app = app(41L);
         TestGeneration generation = generation(57L, app);
@@ -137,6 +167,7 @@ class WebClientAiTestGenerationGatewayTest {
         List<AiGeneratedDraftCommand> commands = gateway().generateDrafts(generation, List.of(2059L), null);
 
         JsonNode requestSpec = new ObjectMapper().readTree(commands.get(0).requestSpec());
+        assertThat(commands.get(0).riskLevel()).isEqualTo("SMOKE");
         assertThat(requestSpec.path("endpoint").asText()).isEqualTo("/apps//scenarios");
         assertThat(requestSpec.path("method").asText()).isEqualTo("GET");
         assertThat(requestSpec.path("body").asText()).isEqualTo("sample");
@@ -173,6 +204,21 @@ class WebClientAiTestGenerationGatewayTest {
                 .build();
         ReflectionTestUtils.setField(generation, "id", id);
         return generation;
+    }
+
+    private Environment environment(App app) {
+        Environment environment = Environment.builder()
+                .app(app)
+                .name("staging")
+                .baseUrl("https://api.example.com")
+                .authType(AuthType.BEARER)
+                .authConfig("{\"token\":\"sample-token\"}")
+                .headers("{\"Authorization\":\"Bearer sample-token\",\"X-Tenant\":\"tenant-a\"}")
+                .defaultTestLevel(TestLevel.SMOKE)
+                .defaultTestLevelSource(TestLevelSource.MANUAL)
+                .build();
+        ReflectionTestUtils.setField(environment, "id", 901L);
+        return environment;
     }
 
     private ApiEndpoint endpoint(Long id, App app) {
@@ -226,7 +272,7 @@ class WebClientAiTestGenerationGatewayTest {
                         "Order creation succeeds",
                         "Verifies a successful order creation.",
                         "HAPPY_PATH",
-                        null,
+                        "SMOKE",
                         "CUSTOMER",
                         "Signed in",
                         "single product",

@@ -5,6 +5,7 @@ public record AiGeneratedDraftCommand(
         String title,
         String description,
         String type,
+        String riskLevel,
         String userRole,
         String stateCondition,
         String dataVariant,

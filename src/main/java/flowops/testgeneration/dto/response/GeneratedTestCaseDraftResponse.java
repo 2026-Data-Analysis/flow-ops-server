@@ -25,6 +25,8 @@ public record GeneratedTestCaseDraftResponse(
         String description,
         @Schema(description = "테스트케이스 유형", example = "HAPPY_PATH")
         String type,
+        @Schema(description = "위험도 평가 결과", example = "REGRESSION")
+        String riskLevel,
         @Schema(description = "사용자 역할", example = "CUSTOMER")
         String userRole,
         @Schema(description = "사전 상태 조건", example = "로그인된 사용자")
@@ -62,6 +64,7 @@ public record GeneratedTestCaseDraftResponse(
                 executionEndpoint(draft),
                 draft.getDescription(),
                 draft.getType(),
+                draft.getRiskLevel(),
                 draft.getUserRole(),
                 draft.getStateCondition(),
                 draft.getDataVariant(),

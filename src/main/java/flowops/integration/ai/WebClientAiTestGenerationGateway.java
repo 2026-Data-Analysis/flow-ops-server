@@ -215,12 +215,12 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         if (apiId == null) {
             throw new ApiException(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI response did not include a resolvable apiId or endpoint_id.");
         }
-        String type = draft.type() != null ? draft.type() : draft.test_case_type();
         return new AiGeneratedDraftCommand(
                 apiId,
                 draft.title(),
                 draft.description(),
-                type,
+                draft.type(),
+                draft.risk_level(),
                 draft.userRole(),
                 draft.stateCondition(),
                 draft.dataVariant(),
@@ -274,14 +274,20 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                     "app-" + app.getId(),
                     app.getName() + " app scope",
                     "",
-                    "REGRESSION"
+                    "REGRESSION",
+                    null,
+                    objectMapper.nullNode(),
+                    objectMapper.nullNode()
             );
         }
         return new EnvironmentPayload(
                 String.valueOf(environment.getId()),
                 environment.getName(),
                 environment.getBaseUrl(),
-                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name()
+                environment.getDefaultTestLevel() == null ? null : environment.getDefaultTestLevel().name(),
+                environment.getAuthType() == null ? null : environment.getAuthType().name(),
+                meaningfulJsonOrNull(parseJson(environment.getAuthConfig())),
+                meaningfulJsonOrNull(parseJson(environment.getHeaders()))
         );
     }
 
