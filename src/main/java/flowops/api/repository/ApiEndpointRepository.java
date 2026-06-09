@@ -34,4 +34,6 @@ public interface ApiEndpointRepository extends JpaRepository<ApiEndpoint, Long> 
     List<ApiEndpoint> findByAppIdAndMethod(Long appId, ApiMethod method);
 
     List<ApiEndpoint> findByAppId(Long appId);
+
+    List<ApiEndpoint> findByAppIdAndDomainTagOrderByPathAscMethodAsc(Long appId, String domainTag);
 }

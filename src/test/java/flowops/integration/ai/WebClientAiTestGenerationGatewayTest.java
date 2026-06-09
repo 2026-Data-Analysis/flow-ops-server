@@ -17,6 +17,7 @@ import flowops.environment.domain.entity.AuthType;
 import flowops.environment.domain.entity.Environment;
 import flowops.environment.domain.entity.TestLevelSource;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
+import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.testcase.domain.entity.TestCase;
@@ -77,6 +78,38 @@ class WebClientAiTestGenerationGatewayTest {
                 .contains("\"response_schema\"")
                 .doesNotContain("requestSchema")
                 .doesNotContain("responseSchema");
+    }
+
+    @Test
+    void generateDraftsSendsSameDomainApiListForLookupContext() {
+        App app = app(41L);
+        TestGeneration generation = generation(57L, app);
+        ApiEndpoint selectedEndpoint = endpoint(2059L, app, ApiMethod.POST, "/orders", "orders");
+        ApiEndpoint listEndpoint = endpoint(2060L, app, ApiMethod.GET, "/orders", "orders");
+        ApiEndpoint detailEndpoint = endpoint(2061L, app, ApiMethod.GET, "/orders/{orderId}", "orders");
+
+        when(apiInventoryRepository.findById(2059L)).thenReturn(Optional.empty());
+        when(apiEndpointService.getApiEndpoint(2059L)).thenReturn(selectedEndpoint);
+        when(apiEndpointService.getApiEndpointsByDomain(41L, "orders"))
+                .thenReturn(List.of(listEndpoint, selectedEndpoint, detailEndpoint));
+        when(testCaseRepository.findByApiEndpointIdInAndActiveTrueOrderByUpdatedAtDesc(List.of(2059L)))
+                .thenReturn(List.of());
+        when(aiClient.generateTestCaseDrafts(any(TestCaseGeneratorRequest.class)))
+                .thenReturn(response("2059"));
+
+        gateway().generateDrafts(generation, List.of(2059L), null);
+
+        ArgumentCaptor<TestCaseGeneratorRequest> captor = ArgumentCaptor.forClass(TestCaseGeneratorRequest.class);
+        verify(aiClient).generateTestCaseDrafts(captor.capture());
+        assertThat(captor.getValue().apis()).extracting(TestCaseApiPayload::apiId)
+                .containsExactly("2059");
+        assertThat(captor.getValue().domainApis()).hasSize(3);
+        assertThat(captor.getValue().domainApis()).extracting(TestCaseApiPayload::method, TestCaseApiPayload::path)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("GET", "/orders"),
+                        org.assertj.core.groups.Tuple.tuple("POST", "/orders"),
+                        org.assertj.core.groups.Tuple.tuple("GET", "/orders/{orderId}")
+                );
     }
 
     @Test
@@ -222,15 +255,23 @@ class WebClientAiTestGenerationGatewayTest {
     }
 
     private ApiEndpoint endpoint(Long id, App app) {
-        return endpoint(id, app, "{\"type\":\"object\"}", "{\"status\":201}");
+        return endpoint(id, app, ApiMethod.POST, "/orders", "orders", "{\"type\":\"object\"}", "{\"status\":201}");
     }
 
     private ApiEndpoint endpoint(Long id, App app, String requestSchema, String responseSchema) {
+        return endpoint(id, app, ApiMethod.POST, "/orders", "orders", requestSchema, responseSchema);
+    }
+
+    private ApiEndpoint endpoint(Long id, App app, ApiMethod method, String path, String domainTag) {
+        return endpoint(id, app, method, path, domainTag, "{\"type\":\"object\"}", "{\"status\":201}");
+    }
+
+    private ApiEndpoint endpoint(Long id, App app, ApiMethod method, String path, String domainTag, String requestSchema, String responseSchema) {
         ApiEndpoint endpoint = ApiEndpoint.builder()
                 .app(app)
-                .method(ApiMethod.POST)
-                .path("/orders")
-                .domainTag("orders")
+                .method(method)
+                .path(path)
+                .domainTag(domainTag)
                 .requestSchema(requestSchema)
                 .responseSchema(responseSchema)
                 .deprecated(false)

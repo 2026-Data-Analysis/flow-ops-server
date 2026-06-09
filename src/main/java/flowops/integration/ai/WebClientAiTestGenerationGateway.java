@@ -83,6 +83,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                     return toTestCaseApiPayload(apiId, selection.endpoint(), selection.inventory());
                 })
                 .toList();
+        List<TestCaseApiPayload> domainApis = domainApis(selections, generation.getApp());
 
         List<ExistingTestCasePayload> existingTestCases = existingTestCases(selections);
         TestCaseGeneratorRequest request = new TestCaseGeneratorRequest(
@@ -103,6 +104,7 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                         generation.getContextSummary()
                 ),
                 apis,
+                domainApis,
                 existingTestCases,
                 null
         );
@@ -167,6 +169,38 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
                 inventory == null ? null : inventory.isAuthRequired(),
                 endpoint.isDeprecated()
         );
+    }
+
+    private List<TestCaseApiPayload> domainApis(List<ApiSelection> selections, App app) {
+        if (app == null || app.getId() == null) {
+            return List.of();
+        }
+        LinkedHashSet<String> domainTags = new LinkedHashSet<>();
+        for (ApiSelection selection : selections) {
+            String domainTag = selection.endpoint().getDomainTag();
+            if (domainTag != null && !domainTag.isBlank()) {
+                domainTags.add(domainTag);
+            }
+        }
+        if (domainTags.isEmpty()) {
+            return selections.stream()
+                    .map(selection -> toTestCaseApiPayload(
+                            String.valueOf(selection.sourceApiId()),
+                            selection.endpoint(),
+                            selection.inventory()))
+                    .toList();
+        }
+        Map<String, TestCaseApiPayload> payloads = new LinkedHashMap<>();
+        for (String domainTag : domainTags) {
+            List<ApiEndpoint> endpoints = apiEndpointService.getApiEndpointsByDomain(app.getId(), domainTag);
+            if (endpoints == null || endpoints.isEmpty()) {
+                continue;
+            }
+            for (ApiEndpoint endpoint : endpoints) {
+                payloads.putIfAbsent(endpointId(endpoint), toTestCaseApiPayload(String.valueOf(endpoint.getId()), endpoint, null));
+            }
+        }
+        return List.copyOf(payloads.values());
     }
 
     private TestCaseGeneratorResponse generateTestCaseDrafts(TestCaseGeneratorRequest request) {

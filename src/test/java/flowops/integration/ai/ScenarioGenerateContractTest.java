@@ -44,6 +44,7 @@ class ScenarioGenerateContractTest {
                 ),
                 new EnvironmentPayload("3", "dev", "https://api.example.com", "REGRESSION", "BEARER", objectMapper.nullNode(), objectMapper.nullNode()),
                 null,
+                null,
                 2,
                 5
         );
@@ -111,6 +112,7 @@ class ScenarioGenerateContractTest {
                         objectMapper.readTree("{\"bodyContains\":[\"orderId\"]}"),
                         201
                 )),
+                null,
                 3,
                 null
         );

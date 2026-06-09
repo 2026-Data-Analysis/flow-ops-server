@@ -38,6 +38,9 @@ public class AgentTestCaseGenerateService {
         List<TestCaseApiPayload> apis = request.apis().stream()
                 .map(this::toApiPayload)
                 .toList();
+        List<TestCaseApiPayload> domainApis = request.domainApis() == null ? List.of() : request.domainApis().stream()
+                .map(this::toApiPayload)
+                .toList();
 
         List<ExistingTestCasePayload> existingTestCases =
                 request.existingTestCases() == null ? List.of() : request.existingTestCases();
@@ -51,6 +54,7 @@ public class AgentTestCaseGenerateService {
                 request.metadata(),
                 request.generationContext(),
                 apis,
+                domainApis,
                 existingTestCases,
                 request.failureContext()
         );

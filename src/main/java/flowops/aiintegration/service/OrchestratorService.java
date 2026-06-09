@@ -160,6 +160,7 @@ public class OrchestratorService {
                 new flowops.integration.ai.AiAgentContracts.TestGenerationContext(
                         null, "FROM_SCRATCH", null, null, null, request.userPrompt()),
                 apis,
+                apis,
                 List.of(),
                 null
         );

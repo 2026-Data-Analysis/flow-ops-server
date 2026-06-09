@@ -78,6 +78,14 @@ public class ApiEndpointService {
     }
 
     @Transactional(readOnly = true)
+    public List<ApiEndpoint> getApiEndpointsByDomain(Long appId, String domainTag) {
+        if (appId == null || domainTag == null || domainTag.isBlank()) {
+            return List.of();
+        }
+        return apiEndpointRepository.findByAppIdAndDomainTagOrderByPathAscMethodAsc(appId, domainTag);
+    }
+
+    @Transactional(readOnly = true)
     public ApiEndpoint findFirstByMethodAndPath(ApiMethod method, String path) {
         return apiEndpointRepository.findFirstByMethodAndPath(method, path)
                 .orElseThrow(() -> new ApiException(

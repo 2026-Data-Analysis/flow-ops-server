@@ -123,6 +123,7 @@ public final class AiAgentContracts {
             MetadataPayload metadata,
             TestGenerationContext generationContext,
             List<TestCaseApiPayload> apis,
+            List<TestCaseApiPayload> domainApis,
             List<ExistingTestCasePayload> existingTestCases,
             FailureContextPayload failureContext
     ) {
