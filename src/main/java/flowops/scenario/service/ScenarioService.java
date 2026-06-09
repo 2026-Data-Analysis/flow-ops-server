@@ -310,29 +310,37 @@ public class ScenarioService {
             log.info("Resolved scenario API inventory by app. appId={}, inventoryCount={}", appId, inventories.size());
             return inventories;
         }
-        List<ApiInventory> inventories = apiIds.stream()
+        // 요청된 apiId를 인벤토리로 해석한다. (프론트가 이미 프로젝트/리포지토리/브랜치로 스코프한 ID)
+        List<ApiInventory> resolved = apiIds.stream()
                 .map(apiInventoryRepository::findById)
                 .filter(java.util.Optional::isPresent)
                 .map(java.util.Optional::get)
+                .toList();
+        // 우선 요청 appId에 속한 인벤토리를 사용한다.
+        List<ApiInventory> appScoped = resolved.stream()
                 .filter(inventory -> inventory.getRepositoryInfo() != null
                         && inventory.getRepositoryInfo().getApp() != null
                         && inventory.getRepositoryInfo().getApp().getId().equals(appId))
                 .toList();
-        log.info("Resolved scenario API inventory by requested ids. appId={}, requestedApiIdCount={}, matchedInventoryCount={}, firstRequestedApiIds={}, firstMatchedInventoryIds={}",
+        log.info("Resolved scenario API inventory by requested ids. appId={}, requestedApiIdCount={}, resolvedCount={}, appScopedCount={}, firstRequestedApiIds={}, firstResolvedInventoryIds={}",
                 appId,
                 apiIds.size(),
-                inventories.size(),
+                resolved.size(),
+                appScoped.size(),
                 apiIds.stream().limit(10).toList(),
-                inventories.stream().limit(10).map(ApiInventory::getId).toList());
-        if (inventories.size() != apiIds.size()) {
-            log.warn("Some requested apiIds were not resolved as ApiInventory ids for app. appId={}, requestedApiIdCount={}, matchedInventoryCount={}",
+                resolved.stream().limit(10).map(ApiInventory::getId).toList());
+        // appId 스코프 결과가 비어 있으면(프론트의 appId가 인벤토리 소유 app과 어긋난 경우)
+        // 요청된 ID로 해석된 인벤토리를 그대로 사용한다. 그렇지 않으면 app 스코프 결과를 사용.
+        if (appScoped.isEmpty() && !resolved.isEmpty()) {
+            log.warn("Requested apiIds belong to a different app than request.appId. Falling back to resolved inventories. requestAppId={}, inventoryAppIds={}",
                     appId,
-                    apiIds.size(),
-                    inventories.size());
+                    resolved.stream().limit(10)
+                            .map(inv -> inv.getRepositoryInfo() != null && inv.getRepositoryInfo().getApp() != null
+                                    ? inv.getRepositoryInfo().getApp().getId() : null)
+                            .toList());
+            return resolved;
         }
-        // 일부만 매칭되더라도 매칭된 인벤토리를 사용한다. (전부 버리면 엔드포인트 fallback에서
-        // 인벤토리 ID를 ApiEndpoint로 조회하다 RESOURCE_NOT_FOUND가 발생함)
-        return inventories;
+        return appScoped;
     }
 
     private List<ApiEndpoint> scenarioEndpoints(Long appId, List<Long> apiIds) {
