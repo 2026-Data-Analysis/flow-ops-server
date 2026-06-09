@@ -518,7 +518,8 @@ public class ScenarioService {
         addParameters(parameters, requestSchema, "pathParams", "path");
         addParameters(parameters, requestSchema, "queryParams", "query");
         addParameters(parameters, requestSchema, "headers", "header");
-        return parameters.isEmpty() ? objectMapper.nullNode() : parameters;
+        // AI 서버는 parameters가 null이 아닌 list여야 하므로 비어 있어도 빈 배열을 반환한다.
+        return parameters;
     }
 
     private void addParameters(ArrayNode target, JsonNode requestSchema, String sourceField, String location) {
