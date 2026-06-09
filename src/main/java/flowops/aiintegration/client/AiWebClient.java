@@ -1,13 +1,7 @@
 package flowops.aiintegration.client;
 
 import flowops.aiintegration.dto.request.AnalyzeSpecRequest;
-import flowops.aiintegration.dto.request.AssistantQueryRequest;
-import flowops.aiintegration.dto.request.GenerateScenarioRequest;
-import flowops.aiintegration.dto.request.GenerateTestCasesRequest;
 import flowops.aiintegration.dto.response.AnalyzeSpecResponse;
-import flowops.aiintegration.dto.response.AssistantQueryResponse;
-import flowops.aiintegration.dto.response.GenerateScenarioResponse;
-import flowops.aiintegration.dto.response.GenerateTestCasesResponse;
 import flowops.global.config.ExternalServiceProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
@@ -52,21 +46,6 @@ public class AiWebClient implements AiClient {
     @Override
     public AnalyzeSpecResponse analyzeSpec(AnalyzeSpecRequest request) {
         return post("/spec/analyze", request, AnalyzeSpecResponse.class);
-    }
-
-    @Override
-    public GenerateTestCasesResponse generateTestCases(GenerateTestCasesRequest request) {
-        return post("/test-cases/generate", request, GenerateTestCasesResponse.class);
-    }
-
-    @Override
-    public GenerateScenarioResponse generateScenario(GenerateScenarioRequest request) {
-        return post("/scenarios/generate", request, GenerateScenarioResponse.class);
-    }
-
-    @Override
-    public AssistantQueryResponse askAssistant(AssistantQueryRequest request) {
-        return post("/assistant/query", request, AssistantQueryResponse.class);
     }
 
     @Override
