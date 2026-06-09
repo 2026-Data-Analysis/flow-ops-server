@@ -63,6 +63,9 @@ public record ScenarioStepResponse(
 
     public static ScenarioStepResponse from(ScenarioStep step) {
         ResponseMetadata metadata = ResponseMetadataSupport.from(responseSchema(step), step.getValidationRules());
+        JsonNode requestSpec = firstMeaningfulJson(step.getRequestSpec(), step.getRequestConfig());
+        JsonNode expectedSpec = expectedSpec(step);
+        JsonNode assertionSpec = assertionSpec(step);
         return new ScenarioStepResponse(
                 step.getId(),
                 step.getStepId() == null || step.getStepId().isBlank() ? String.valueOf(step.getId()) : step.getStepId(),
@@ -80,9 +83,9 @@ public record ScenarioStepResponse(
                 step.getUserRole(),
                 step.getStateCondition(),
                 step.getDataVariant(),
-                parseJson(step.getRequestSpec()),
-                parseJson(step.getExpectedSpec()),
-                parseJson(step.getAssertionSpec()),
+                requestSpec,
+                expectedSpec,
+                assertionSpec,
                 step.getDuplicate(),
                 step.getRequestConfig(),
                 step.getExtractRules(),
@@ -98,6 +101,65 @@ public record ScenarioStepResponse(
             return step.getApiInventory().getResponseSchema();
         }
         return step.getApiEndpoint().getResponseSchema();
+    }
+
+    private static JsonNode firstMeaningfulJson(String primary, String fallback) {
+        JsonNode primaryJson = parseJson(primary);
+        if (isMeaningful(primaryJson)) {
+            return primaryJson;
+        }
+        JsonNode fallbackJson = parseJson(fallback);
+        return isMeaningful(fallbackJson) ? fallbackJson : null;
+    }
+
+    private static JsonNode expectedSpec(ScenarioStep step) {
+        JsonNode direct = parseJson(step.getExpectedSpec());
+        if (isMeaningful(direct)) {
+            return direct;
+        }
+        JsonNode validationRules = parseJson(step.getValidationRules());
+        JsonNode fromValidation = objectField(validationRules, "expectedSpec");
+        if (isMeaningful(fromValidation)) {
+            return fromValidation;
+        }
+        JsonNode expectedStatusCode = objectField(validationRules, "expectedStatusCode");
+        if (isMeaningful(expectedStatusCode)) {
+            return OBJECT_MAPPER.getNodeFactory().objectNode().set("statusCode", expectedStatusCode);
+        }
+        return null;
+    }
+
+    private static JsonNode assertionSpec(ScenarioStep step) {
+        JsonNode direct = parseJson(step.getAssertionSpec());
+        if (isMeaningful(direct)) {
+            return direct;
+        }
+        JsonNode validationRules = parseJson(step.getValidationRules());
+        JsonNode fromValidation = objectField(validationRules, "assertionSpec");
+        if (isMeaningful(fromValidation)) {
+            return fromValidation;
+        }
+        JsonNode assertions = objectField(validationRules, "assertions");
+        if (isMeaningful(assertions)) {
+            return OBJECT_MAPPER.getNodeFactory().objectNode().set("assertions", assertions);
+        }
+        return null;
+    }
+
+    private static JsonNode objectField(JsonNode node, String field) {
+        if (node == null || !node.isObject() || !node.has(field)) {
+            return null;
+        }
+        return node.get(field);
+    }
+
+    private static boolean isMeaningful(JsonNode node) {
+        return node != null
+                && !node.isNull()
+                && !node.isMissingNode()
+                && !(node.isObject() && node.isEmpty())
+                && !(node.isArray() && node.isEmpty())
+                && !(node.isTextual() && node.asText().isBlank());
     }
 
     private static JsonNode parseJson(String value) {

@@ -47,4 +47,51 @@ class ScenarioStepResponseTest {
         assertThat(response.assertionSpec().get("bodyContains").get(0).asText()).isEqualTo("orderId");
         assertThat(response.duplicate()).isFalse();
     }
+
+    @Test
+    void prefersGeneratedStepSpecFieldsOverLegacyExecutionFields() {
+        ApiEndpoint endpoint = ApiEndpoint.builder()
+                .method(ApiMethod.POST)
+                .path("/orders")
+                .deprecated(false)
+                .build();
+        ScenarioStep step = ScenarioStep.builder()
+                .stepOrder(1)
+                .apiEndpoint(endpoint)
+                .label("Create order")
+                .requestSpec("{\"body\":{\"source\":\"v2\"}}")
+                .expectedSpec("{\"statusCode\":201}")
+                .assertionSpec("{\"bodyContains\":[\"orderId\"]}")
+                .requestConfig("{\"body\":{\"source\":\"legacy\"}}")
+                .validationRules("{\"expectedSpec\":{\"statusCode\":200},\"assertionSpec\":{\"bodyContains\":[\"legacy\"]}}")
+                .build();
+
+        ScenarioStepResponse response = ScenarioStepResponse.from(step);
+
+        assertThat(response.requestSpec().get("body").get("source").asText()).isEqualTo("v2");
+        assertThat(response.expectedSpec().get("statusCode").asInt()).isEqualTo(201);
+        assertThat(response.assertionSpec().get("bodyContains").get(0).asText()).isEqualTo("orderId");
+    }
+
+    @Test
+    void exposesLegacyExecutionFieldsAsSpecFallbacksWhenGeneratedFieldsAreMissing() {
+        ApiEndpoint endpoint = ApiEndpoint.builder()
+                .method(ApiMethod.POST)
+                .path("/orders")
+                .deprecated(false)
+                .build();
+        ScenarioStep step = ScenarioStep.builder()
+                .stepOrder(1)
+                .apiEndpoint(endpoint)
+                .label("Create order")
+                .requestConfig("{\"body\":{\"source\":\"legacy\"}}")
+                .validationRules("{\"expectedSpec\":{\"statusCode\":201},\"assertionSpec\":{\"bodyContains\":[\"orderId\"]}}")
+                .build();
+
+        ScenarioStepResponse response = ScenarioStepResponse.from(step);
+
+        assertThat(response.requestSpec().get("body").get("source").asText()).isEqualTo("legacy");
+        assertThat(response.expectedSpec().get("statusCode").asInt()).isEqualTo(201);
+        assertThat(response.assertionSpec().get("bodyContains").get(0).asText()).isEqualTo("orderId");
+    }
 }

@@ -88,10 +88,11 @@ public class ScenarioService {
                 request.steps() == null ? 0 : request.steps().size(),
                 request.steps() == null ? List.of() : request.steps().stream().map(ScenarioStepRequest::apiId).toList());
         App app = appService.getApp(request.appId());
+        Environment environment = resolveCreateEnvironment(request, app);
         try {
             Scenario scenario = scenarioRepository.save(Scenario.builder()
                     .app(app)
-                    .environment(null)
+                    .environment(environment)
                     .name(request.name())
                     .description(request.description())
                     .type(request.type())
@@ -532,6 +533,15 @@ public class ScenarioService {
         return testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(appId).stream()
                 .map(this::toScenarioExistingTestCasePayload)
                 .toList();
+    }
+
+    private Environment resolveCreateEnvironment(CreateScenarioRequest request, App app) {
+        if (request.environmentId() == null) {
+            return null;
+        }
+        return environmentRepository.findById(request.environmentId())
+                .filter(environment -> environment.getApp() != null && environment.getApp().getId().equals(app.getId()))
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Environment not found for this app."));
     }
 
     private ScenarioExistingTestCasePayload toScenarioExistingTestCasePayload(TestCase testCase) {
