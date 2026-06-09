@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
@@ -30,11 +31,18 @@ class ScenarioGenerateContractTest {
                                 "/orders",
                                 "POST",
                                 "Order",
+                                "Create a new order",
+                                objectMapper.readTree("[{\"name\":\"userId\",\"in\":\"query\"}]"),
                                 new ScenarioAuthPayload("bearer", "header"),
                                 objectMapper.readTree("{\"type\":\"object\"}"),
-                                objectMapper.readTree("{\"type\":\"object\"}")
+                                objectMapper.readTree("{\"type\":\"object\"}"),
+                                List.of(201),
+                                List.of(400, 500),
+                                List.of("ORDER-400"),
+                                List.of("ORDER")
                         ))
                 ),
+                new EnvironmentPayload("3", "dev", "https://api.example.com", "REGRESSION", "BEARER", objectMapper.nullNode(), objectMapper.nullNode()),
                 null,
                 2,
                 5
@@ -48,9 +56,16 @@ class ScenarioGenerateContractTest {
         assertThat(json.get("api_inventory").get("project_id").asText()).isEqualTo("project-1");
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("summary").asText()).isEqualTo("Order");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("description").asText()).isEqualTo("Create a new order");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("parameters").get(0).get("name").asText()).isEqualTo("userId");
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("request_body_schema").get("type").asText()).isEqualTo("object");
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("response_schema").get("type").asText()).isEqualTo("object");
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("auth").get("type").asText()).isEqualTo("bearer");
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("expectedStatusCodes").get(0).asInt()).isEqualTo(201);
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("errorStatusCodes").get(0).asInt()).isEqualTo(400);
+        assertThat(json.get("api_inventory").get("endpoints").get(0).get("errorCodes").get(0).asText()).isEqualTo("ORDER-400");
+        assertThat(json.get("environment").get("environmentId").asText()).isEqualTo("3");
+        assertThat(json.get("environment").get("baseUrl").asText()).isEqualTo("https://api.example.com");
         assertThat(json.get("max_scenarios").asInt()).isEqualTo(2);
         assertThat(json.get("max_steps_per_scenario").asInt()).isEqualTo(5);
         assertThat(json.has("agent")).isFalse();
@@ -72,11 +87,18 @@ class ScenarioGenerateContractTest {
                                 "/orders",
                                 "POST",
                                 "Order",
+                                null,
+                                null,
                                 new ScenarioAuthPayload("bearer", "header"),
                                 objectMapper.readTree("{\"type\":\"object\"}"),
-                                objectMapper.readTree("{\"type\":\"object\"}")
+                                objectMapper.readTree("{\"type\":\"object\"}"),
+                                List.of(),
+                                List.of(),
+                                List.of(),
+                                List.of()
                         ))
                 ),
+                new EnvironmentPayload("3", "dev", "https://api.example.com", "REGRESSION", "BEARER", objectMapper.nullNode(), objectMapper.nullNode()),
                 List.of(new ScenarioExistingTestCasePayload(
                         "101",
                         "POST:/orders",

@@ -45,6 +45,42 @@ public class ScenarioStep extends BaseEntity {
     @Column(nullable = false, length = 200)
     private String label;
 
+    @Column(name = "step_id", length = 100)
+    private String stepId;
+
+    @Column(name = "step_ref", length = 100)
+    private String ref;
+
+    @Column(name = "chained_variables", columnDefinition = "TEXT")
+    private String chainedVariables;
+
+    @Column(name = "step_type", length = 40)
+    private String type;
+
+    @Column(name = "test_level", length = 20)
+    private String testLevel;
+
+    @Column(name = "user_role", length = 100)
+    private String userRole;
+
+    @Column(name = "state_condition", columnDefinition = "TEXT")
+    private String stateCondition;
+
+    @Column(name = "data_variant", columnDefinition = "TEXT")
+    private String dataVariant;
+
+    @Column(name = "request_spec", columnDefinition = "TEXT")
+    private String requestSpec;
+
+    @Column(name = "expected_spec", columnDefinition = "TEXT")
+    private String expectedSpec;
+
+    @Column(name = "assertion_spec", columnDefinition = "TEXT")
+    private String assertionSpec;
+
+    @Column(name = "is_duplicate")
+    private Boolean duplicate;
+
     @Column(name = "request_config", columnDefinition = "TEXT")
     private String requestConfig;
 
@@ -61,6 +97,18 @@ public class ScenarioStep extends BaseEntity {
             ApiEndpoint apiEndpoint,
             ApiInventory apiInventory,
             String label,
+            String stepId,
+            String ref,
+            String chainedVariables,
+            String type,
+            String testLevel,
+            String userRole,
+            String stateCondition,
+            String dataVariant,
+            String requestSpec,
+            String expectedSpec,
+            String assertionSpec,
+            Boolean duplicate,
             String requestConfig,
             String extractRules,
             String validationRules
@@ -70,6 +118,18 @@ public class ScenarioStep extends BaseEntity {
         this.apiEndpoint = apiEndpoint;
         this.apiInventory = apiInventory;
         this.label = label;
+        this.stepId = stepId;
+        this.ref = ref;
+        this.chainedVariables = chainedVariables;
+        this.type = type;
+        this.testLevel = testLevel;
+        this.userRole = userRole;
+        this.stateCondition = stateCondition;
+        this.dataVariant = dataVariant;
+        this.requestSpec = requestSpec;
+        this.expectedSpec = expectedSpec;
+        this.assertionSpec = assertionSpec;
+        this.duplicate = duplicate;
         this.requestConfig = requestConfig;
         this.extractRules = extractRules;
         this.validationRules = validationRules;
@@ -82,5 +142,33 @@ public class ScenarioStep extends BaseEntity {
         this.requestConfig = requestConfig;
         this.extractRules = extractRules;
         this.validationRules = validationRules;
+    }
+
+    public void updateStepSpec(
+            String stepId,
+            String ref,
+            String chainedVariables,
+            String type,
+            String testLevel,
+            String userRole,
+            String stateCondition,
+            String dataVariant,
+            String requestSpec,
+            String expectedSpec,
+            String assertionSpec,
+            Boolean duplicate
+    ) {
+        this.stepId = stepId;
+        this.ref = ref;
+        this.chainedVariables = chainedVariables;
+        this.type = type;
+        this.testLevel = testLevel;
+        this.userRole = userRole;
+        this.stateCondition = stateCondition;
+        this.dataVariant = dataVariant;
+        this.requestSpec = requestSpec;
+        this.expectedSpec = expectedSpec;
+        this.assertionSpec = assertionSpec;
+        this.duplicate = duplicate;
     }
 }

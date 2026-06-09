@@ -1,0 +1,12 @@
+ALTER TABLE scenario_steps ADD COLUMN step_id VARCHAR(100);
+ALTER TABLE scenario_steps ADD COLUMN step_ref VARCHAR(100);
+ALTER TABLE scenario_steps ADD COLUMN chained_variables TEXT;
+ALTER TABLE scenario_steps ADD COLUMN step_type VARCHAR(40);
+ALTER TABLE scenario_steps ADD COLUMN test_level VARCHAR(20);
+ALTER TABLE scenario_steps ADD COLUMN user_role VARCHAR(100);
+ALTER TABLE scenario_steps ADD COLUMN state_condition TEXT;
+ALTER TABLE scenario_steps ADD COLUMN data_variant TEXT;
+ALTER TABLE scenario_steps ADD COLUMN request_spec TEXT;
+ALTER TABLE scenario_steps ADD COLUMN expected_spec TEXT;
+ALTER TABLE scenario_steps ADD COLUMN assertion_spec TEXT;
+ALTER TABLE scenario_steps ADD COLUMN is_duplicate BOOLEAN;

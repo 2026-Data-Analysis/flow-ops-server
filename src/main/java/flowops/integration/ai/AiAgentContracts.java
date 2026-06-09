@@ -200,6 +200,7 @@ public final class AiAgentContracts {
             String user_intent,
             @JsonProperty("api_inventory")
             ScenarioApiInventoryPayload api_inventory,
+            EnvironmentPayload environment,
             @JsonProperty("existing_test_cases")
             List<ScenarioExistingTestCasePayload> existing_test_cases,
             @JsonProperty("max_scenarios")
@@ -223,11 +224,17 @@ public final class AiAgentContracts {
             String path,
             String method,
             String summary,
+            String description,
+            JsonNode parameters,
             ScenarioAuthPayload auth,
             @JsonProperty("request_body_schema")
             JsonNode request_body_schema,
             @JsonProperty("response_schema")
-            JsonNode response_schema
+            JsonNode response_schema,
+            List<Integer> expectedStatusCodes,
+            List<Integer> errorStatusCodes,
+            List<String> errorCodes,
+            List<String> tags
     ) {
     }
 

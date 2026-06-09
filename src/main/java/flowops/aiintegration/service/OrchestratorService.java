@@ -15,6 +15,7 @@ import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ReportContextPayload;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
@@ -190,9 +191,15 @@ public class OrchestratorService {
                         textOrNull(ep, "path"),
                         textOrNull(ep, "method"),
                         textOrNull(ep, "summary"),
+                        textOrNull(ep, "description"),
+                        ep.get("parameters"),
                         authPayload(ep.get("auth")),
                         ep.get("requestSchema") == null ? ep.get("request_body_schema") : ep.get("requestSchema"),
-                        ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema")
+                        ep.get("responseSchema") == null ? ep.get("response_schema") : ep.get("responseSchema"),
+                        integerArrayWithAlias(ep, "expectedStatusCodes", "expected_status_codes"),
+                        integerArrayWithAlias(ep, "errorStatusCodes", "error_status_codes"),
+                        stringArrayWithAlias(ep, "errorCodes", "error_codes"),
+                        stringArray(ep, "tags")
                 ));
             }
         }
@@ -200,8 +207,9 @@ public class OrchestratorService {
         ScenarioGenerateRequest aiReq = new ScenarioGenerateRequest(
                 projectId,
                 mode,
-                "NATURAL_LANGUAGE".equals(mode) ? request.userPrompt() : null,
+                "NATURAL_LANGUAGE".equals(mode) ? firstText(ctx, "user_intent", request.userPrompt()) : null,
                 new ScenarioApiInventoryPayload(projectId, endpoints),
+                environmentPayload(ctx),
                 "RECOMMEND".equals(mode) ? List.of() : null,
                 intOrNull(ctx, "max_scenarios"),
                 intOrNull(ctx, "max_steps_per_scenario")
@@ -234,6 +242,19 @@ public class OrchestratorService {
             return new ScenarioAuthPayload(textOrNull(auth, "type"), textOrNull(auth, "location"));
         }
         return null;
+    }
+
+    private EnvironmentPayload environmentPayload(JsonNode ctx) {
+        JsonNode environment = ctx == null ? null : ctx.get("environment");
+        return new EnvironmentPayload(
+                firstText(environment, "environmentId", textOrNull(ctx, "environment_id")),
+                firstText(environment, "name", textOrNull(ctx, "env_name")),
+                firstText(environment, "baseUrl", textOrNull(ctx, "base_url")),
+                firstText(environment, "defaultTestLevel", textOrNull(ctx, "default_test_level")),
+                firstText(environment, "authType", textOrNull(ctx, "auth_type")),
+                environment != null && environment.has("authConfig") ? environment.get("authConfig") : ctx == null ? null : ctx.get("auth_config"),
+                environment != null && environment.has("headers") ? environment.get("headers") : ctx == null ? null : ctx.get("headers")
+        );
     }
 
     private List<RootCause> buildRootCauses(LogAnalysisResponse logRes, ErrorReportResponse reportRes) {
@@ -291,6 +312,11 @@ public class OrchestratorService {
         return values;
     }
 
+    private List<Integer> integerArrayWithAlias(JsonNode node, String primaryField, String fallbackField) {
+        List<Integer> primary = integerArray(node, primaryField);
+        return primary.isEmpty() ? integerArray(node, fallbackField) : primary;
+    }
+
     private List<String> stringArray(JsonNode node, String field) {
         if (node == null || !node.has(field) || !node.get(field).isArray()) {
             return List.of();
@@ -302,5 +328,15 @@ public class OrchestratorService {
             }
         });
         return values;
+    }
+
+    private List<String> stringArrayWithAlias(JsonNode node, String primaryField, String fallbackField) {
+        List<String> primary = stringArray(node, primaryField);
+        return primary.isEmpty() ? stringArray(node, fallbackField) : primary;
+    }
+
+    private String firstText(JsonNode node, String field, String fallback) {
+        String value = textOrNull(node, field);
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

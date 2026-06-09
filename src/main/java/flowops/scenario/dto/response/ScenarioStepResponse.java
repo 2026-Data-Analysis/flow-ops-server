@@ -1,5 +1,7 @@
 package flowops.scenario.dto.response;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
 import flowops.execution.support.ResponseMetadataSupport;
@@ -9,34 +11,62 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 public record ScenarioStepResponse(
-        @Schema(description = "시나리오 스텝 ID", example = "901")
+        @Schema(description = "Scenario step database id", example = "901")
         Long id,
-        @Schema(description = "스텝 순서", example = "1")
+        @Schema(description = "AI-generated step id. Falls back to the database id when absent.", example = "step-1")
+        String stepId,
+        @Schema(description = "Short step reference", example = "step_1")
+        String ref,
+        @Schema(description = "Step order", example = "1")
         Integer stepOrder,
-        @Schema(description = "API ID", example = "10")
+        @Schema(description = "FlowOps API id", example = "10")
         Long apiId,
-        @Schema(description = "엔드포인트 정보")
+        @Schema(description = "Endpoint information")
         EndpointResponse endpoint,
-        @Schema(description = "스텝 라벨", example = "주문 생성")
+        @Schema(description = "Step label", example = "Request payment approval")
         String label,
-        @Schema(description = "요청 설정 JSON", example = "{\"body\":{\"productId\":1}}")
+        @Schema(description = "Chained variables JSON")
+        JsonNode chainedVariables,
+        @Schema(description = "Scenario step type", example = "HAPPY_PATH")
+        String type,
+        @Schema(description = "Step test level context", example = "REGRESSION")
+        String testLevel,
+        @Schema(description = "User role context", example = "CUSTOMER")
+        String userRole,
+        @Schema(description = "State precondition")
+        String stateCondition,
+        @Schema(description = "Data variant")
+        String dataVariant,
+        @Schema(description = "Executable request spec JSON")
+        JsonNode requestSpec,
+        @Schema(description = "Expected response spec JSON")
+        JsonNode expectedSpec,
+        @Schema(description = "Assertion spec JSON")
+        JsonNode assertionSpec,
+        @Schema(description = "Whether this step is a duplicate")
+        Boolean duplicate,
+        @Schema(description = "Legacy execution request config JSON", example = "{\"body\":{\"productId\":1}}")
         String requestConfig,
-        @Schema(description = "추출 규칙 JSON", example = "{\"orderId\":\"$.orderId\"}")
+        @Schema(description = "Legacy extraction rules JSON", example = "{\"orderId\":\"$.orderId\"}")
         String extractRules,
-        @Schema(description = "검증 규칙 JSON", example = "{\"expectedStatusCode\":201}")
+        @Schema(description = "Legacy validation rules JSON", example = "{\"expectedStatusCode\":201}")
         String validationRules,
-        @Schema(description = "성공 응답으로 기대할 수 있는 HTTP 상태 코드 목록", example = "[200,201]")
+        @Schema(description = "Expected success HTTP status codes", example = "[200,201]")
         List<Integer> expectedStatusCodes,
-        @Schema(description = "오류 응답으로 발생할 수 있는 HTTP 상태 코드 목록", example = "[400,401,404,409,500]")
+        @Schema(description = "Expected error HTTP status codes", example = "[400,401,404,409,500]")
         List<Integer> errorStatusCodes,
-        @Schema(description = "응답 예시에서 추출한 오류 코드 목록", example = "[\"COMMON-400\"]")
+        @Schema(description = "Error codes extracted from response examples", example = "[\"COMMON-400\"]")
         List<String> errorCodes
 ) {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
     public static ScenarioStepResponse from(ScenarioStep step) {
         ResponseMetadata metadata = ResponseMetadataSupport.from(responseSchema(step), step.getValidationRules());
         return new ScenarioStepResponse(
                 step.getId(),
+                step.getStepId() == null || step.getStepId().isBlank() ? String.valueOf(step.getId()) : step.getStepId(),
+                step.getRef(),
                 step.getStepOrder(),
                 step.getApiInventory() == null ? step.getApiEndpoint().getId() : step.getApiInventory().getId(),
                 EndpointResponse.from(
@@ -44,6 +74,16 @@ public record ScenarioStepResponse(
                         step.getApiInventory() == null ? step.getApiEndpoint().getId() : step.getApiInventory().getId()
                 ),
                 step.getLabel(),
+                parseJson(step.getChainedVariables()),
+                step.getType(),
+                step.getTestLevel(),
+                step.getUserRole(),
+                step.getStateCondition(),
+                step.getDataVariant(),
+                parseJson(step.getRequestSpec()),
+                parseJson(step.getExpectedSpec()),
+                parseJson(step.getAssertionSpec()),
+                step.getDuplicate(),
                 step.getRequestConfig(),
                 step.getExtractRules(),
                 step.getValidationRules(),
@@ -60,16 +100,27 @@ public record ScenarioStepResponse(
         return step.getApiEndpoint().getResponseSchema();
     }
 
+    private static JsonNode parseJson(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readTree(value);
+        } catch (Exception ignored) {
+            return OBJECT_MAPPER.getNodeFactory().textNode(value);
+        }
+    }
+
     public record EndpointResponse(
-            @Schema(description = "API ID", example = "10")
+            @Schema(description = "API id", example = "10")
             Long id,
-            @Schema(description = "HTTP 메서드", example = "POST")
+            @Schema(description = "HTTP method", example = "POST")
             ApiMethod method,
-            @Schema(description = "API 경로", example = "/orders")
+            @Schema(description = "API path", example = "/orders")
             String path,
-            @Schema(description = "도메인 태그", example = "ORDER")
+            @Schema(description = "Domain tag", example = "ORDER")
             String domainTag,
-            @Schema(description = "컨트롤러 이름", example = "OrderController")
+            @Schema(description = "Controller name", example = "OrderController")
             String controllerName
     ) {
         public static EndpointResponse from(ApiEndpoint endpoint) {

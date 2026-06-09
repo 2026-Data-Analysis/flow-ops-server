@@ -2,7 +2,10 @@ package flowops.scenario.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import flowops.execution.support.ResponseMetadataSupport;
+import flowops.execution.support.ResponseMetadataSupport.ResponseMetadata;
 import flowops.aiintegration.client.AiClient;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
@@ -374,6 +377,7 @@ public class ScenarioService {
                 mode,
                 "NATURAL_LANGUAGE".equals(mode) ? userIntent(request) : null,
                 new ScenarioApiInventoryPayload(projectId, apis),
+                environmentPayload(request, resolveEnvironment(request, app)),
                 "RECOMMEND".equals(mode) ? existingTestCases(app.getId()) : null,
                 maxScenarios(request, mode),
                 maxStepsPerScenario(request, mode)
@@ -429,27 +433,54 @@ public class ScenarioService {
     }
 
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiInventory inventory) {
+        JsonNode requestSchema = parseJson(inventory.getRequestSchema());
+        JsonNode responseSchema = parseJson(inventory.getResponseSchema());
+        ResponseMetadata metadata = ResponseMetadataSupport.from(inventory.getResponseSchema(), null);
         return new ScenarioEndpointPayload(
                 endpointId(inventory.getMethod().name(), inventory.getEndpointPath()),
                 inventory.getEndpointPath(),
                 inventory.getMethod().name(),
                 inventory.getSummary(),
+                inventory.getOperationId(),
+                parameters(requestSchema),
                 authPayload(inventory.isAuthRequired()),
-                parseJson(inventory.getRequestSchema()),
-                parseJson(inventory.getResponseSchema())
+                requestBodySchema(requestSchema),
+                responseSchema,
+                metadata.expectedStatusCodes(),
+                metadata.errorStatusCodes(),
+                metadata.errorCodes(),
+                tags(inventory.getDomainTag())
         );
     }
 
     private ScenarioEndpointPayload toScenarioEndpointPayload(ApiEndpoint endpoint) {
+        JsonNode requestSchema = parseJson(endpoint.getRequestSchema());
+        JsonNode responseSchema = parseJson(endpoint.getResponseSchema());
+        ResponseMetadata metadata = ResponseMetadataSupport.from(endpoint.getResponseSchema(), null);
         return new ScenarioEndpointPayload(
                 endpointId(endpoint.getMethod().name(), endpoint.getPath()),
                 endpoint.getPath(),
                 endpoint.getMethod().name(),
                 endpoint.getDomainTag(),
+                endpoint.getControllerName(),
+                parameters(requestSchema),
                 null,
-                parseJson(endpoint.getRequestSchema()),
-                parseJson(endpoint.getResponseSchema())
+                requestBodySchema(requestSchema),
+                responseSchema,
+                metadata.expectedStatusCodes(),
+                metadata.errorStatusCodes(),
+                metadata.errorCodes(),
+                tags(endpoint.getDomainTag())
         );
+    }
+
+    private Environment resolveEnvironment(RecommendScenarioRequest request, App app) {
+        if (request.environmentId() != null) {
+            return environmentRepository.findById(request.environmentId())
+                    .filter(environment -> environment.getApp() != null && environment.getApp().getId().equals(app.getId()))
+                    .orElse(null);
+        }
+        return environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(app.getId()).orElse(null);
     }
 
     private ScenarioAuthPayload authPayload(boolean authRequired) {
@@ -460,6 +491,37 @@ public class ScenarioService {
 
     private List<String> tags(String domainTag) {
         return domainTag == null || domainTag.isBlank() ? List.of() : List.of(domainTag);
+    }
+
+    private JsonNode requestBodySchema(JsonNode requestSchema) {
+        if (requestSchema == null || requestSchema.isNull() || requestSchema.isMissingNode()) {
+            return objectMapper.nullNode();
+        }
+        if (requestSchema.isObject() && requestSchema.has("body")) {
+            return requestSchema.get("body");
+        }
+        return requestSchema;
+    }
+
+    private JsonNode parameters(JsonNode requestSchema) {
+        ArrayNode parameters = objectMapper.createArrayNode();
+        addParameters(parameters, requestSchema, "pathParams", "path");
+        addParameters(parameters, requestSchema, "queryParams", "query");
+        addParameters(parameters, requestSchema, "headers", "header");
+        return parameters.isEmpty() ? objectMapper.nullNode() : parameters;
+    }
+
+    private void addParameters(ArrayNode target, JsonNode requestSchema, String sourceField, String location) {
+        if (requestSchema == null || !requestSchema.has(sourceField) || !requestSchema.get(sourceField).isObject()) {
+            return;
+        }
+        requestSchema.get(sourceField).fields().forEachRemaining(entry -> {
+            ObjectNode parameter = objectMapper.createObjectNode();
+            parameter.put("name", entry.getKey());
+            parameter.put("in", location);
+            parameter.set("schema", entry.getValue());
+            target.add(parameter);
+        });
     }
 
     private String endpointId(String method, String path) {
@@ -700,9 +762,21 @@ public class ScenarioService {
                     .apiEndpoint(apiEndpoint)
                     .apiInventory(apiInventory)
                     .label(step.label())
-                    .requestConfig(step.requestConfig())
+                    .stepId(step.stepId())
+                    .ref(step.ref())
+                    .chainedVariables(jsonString(step.chainedVariables()))
+                    .type(step.type())
+                    .testLevel(step.testLevel())
+                    .userRole(step.userRole())
+                    .stateCondition(step.stateCondition())
+                    .dataVariant(step.dataVariant())
+                    .requestSpec(jsonString(step.requestSpec()))
+                    .expectedSpec(jsonString(step.expectedSpec()))
+                    .assertionSpec(jsonString(step.assertionSpec()))
+                    .duplicate(step.duplicate())
+                    .requestConfig(defaultIfBlank(step.requestConfig(), jsonString(step.requestSpec())))
                     .extractRules(step.extractRules())
-                    .validationRules(step.validationRules())
+                    .validationRules(defaultIfBlank(step.validationRules(), validationRules(step.expectedSpec(), step.assertionSpec())))
                     .build());
             responses.add(ScenarioStepResponse.from(saved));
         }
@@ -756,6 +830,25 @@ public class ScenarioService {
         }
         String compacted = value.replaceAll("\\s+", " ").trim();
         return compacted.length() > 2000 ? compacted.substring(0, 2000) + "..." : compacted;
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String validationRules(JsonNode expectedSpec, JsonNode assertionSpec) {
+        ObjectNode validationRules = objectMapper.createObjectNode();
+        if (expectedSpec != null && !expectedSpec.isNull()) {
+            validationRules.set("expectedSpec", expectedSpec);
+            Integer expectedStatus = extractExpectedStatus(jsonString(expectedSpec));
+            if (expectedStatus != null) {
+                validationRules.put("expectedStatusCode", expectedStatus);
+            }
+        }
+        if (assertionSpec != null && !assertionSpec.isNull()) {
+            validationRules.set("assertionSpec", assertionSpec);
+        }
+        return validationRules.isEmpty() ? null : jsonString(validationRules);
     }
 }
 
