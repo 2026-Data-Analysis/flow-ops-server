@@ -3,6 +3,7 @@ package flowops.testgeneration.dto.response;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
 import flowops.execution.support.ExecutionRequestSpecSupport;
@@ -38,6 +39,9 @@ public record GeneratedTestCaseDraftResponse(
         String type,
         @Schema(description = "Risk/test level", example = "REGRESSION")
         String riskLevel,
+        @JsonProperty("risk_level")
+        @Schema(description = "Risk/test level in orchestrator response format.", example = "MEDIUM")
+        String risk_level,
         @Schema(description = "User role", example = "CUSTOMER")
         String userRole,
         @Schema(description = "Precondition/state", example = "Signed in customer")
@@ -50,8 +54,12 @@ public record GeneratedTestCaseDraftResponse(
         String requestSpec,
         @Schema(description = "Expected result spec JSON", example = "{\"status\":201}")
         String expectedSpec,
+        @Schema(description = "Structured expected result spec for frontend editors.")
+        JsonNode expected,
         @Schema(description = "Assertion spec JSON", example = "{\"assertions\":[\"status == 201\"]}")
         String assertionSpec,
+        @Schema(description = "Structured assertion spec for frontend editors.")
+        JsonNode assertion,
         @Schema(description = "Expected HTTP status codes", example = "[200,201]")
         List<Integer> expectedStatusCodes,
         @Schema(description = "Error HTTP status codes", example = "[400,401,404,409,500]")
@@ -73,6 +81,7 @@ public record GeneratedTestCaseDraftResponse(
         RequestSpecResponse request = RequestSpecResponse.from(draft);
         String executionMethod = request.method();
         String executionEndpoint = request.endpoint();
+        String riskLevel = defaultIfBlank(draft.getRiskLevel(), draft.getType());
         return new GeneratedTestCaseDraftResponse(
                 draft.getId(),
                 draft.getGeneration().getId(),
@@ -84,14 +93,17 @@ public record GeneratedTestCaseDraftResponse(
                 executionEndpoint,
                 draft.getDescription(),
                 draft.getType(),
-                draft.getRiskLevel(),
+                riskLevel,
+                riskLevel,
                 draft.getUserRole(),
                 draft.getStateCondition(),
                 draft.getDataVariant(),
                 request,
                 request.toStorageText(),
                 draft.getExpectedSpec(),
+                parse(draft.getExpectedSpec()),
                 draft.getAssertionSpec(),
+                parse(draft.getAssertionSpec()),
                 metadata.expectedStatusCodes(),
                 metadata.errorStatusCodes(),
                 metadata.errorCodes(),
@@ -116,6 +128,10 @@ public record GeneratedTestCaseDraftResponse(
             return draft.getApiInventory().getResponseSchema();
         }
         return draft.getApiEndpoint().getResponseSchema();
+    }
+
+    private static String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     public record SelectedEndpointResponse(

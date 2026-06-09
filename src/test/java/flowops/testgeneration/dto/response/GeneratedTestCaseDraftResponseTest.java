@@ -25,9 +25,12 @@ class GeneratedTestCaseDraftResponseTest {
         assertThat(response.endpointName()).isEqualTo("POST /orders");
         assertThat(response.selectedEndpoint().id()).isEqualTo(2056L);
         assertThat(response.selectedEndpoint().path()).isEqualTo("/orders");
+        assertThat(response.risk_level()).isEqualTo("REGRESSION");
         assertThat(response.request().method()).isEqualTo("POST");
         assertThat(response.request().endpoint()).isEqualTo("/orders");
         assertThat(response.request().body().get("productId").asInt()).isEqualTo(1);
+        assertThat(response.expected().get("status").asInt()).isEqualTo(201);
+        assertThat(response.assertion().get("assertions").get(0).asText()).isEqualTo("status == 201");
         assertThat(response.requestSpec()).contains("\"body\":{\"productId\":1,\"quantity\":2}");
     }
 
