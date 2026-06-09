@@ -190,6 +190,15 @@ public final class AiAgentContracts {
     ) {
     }
 
+    @Schema(description = "기존 시나리오 요약 (중복 방지용)")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ExistingScenarioSummary(
+            String name,
+            @JsonProperty("step_api_ids")
+            List<Long> step_api_ids
+    ) {
+    }
+
     @Schema(description = "시나리오 빌더 AI 에이전트 요청")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ScenarioGenerateRequest(
@@ -203,6 +212,8 @@ public final class AiAgentContracts {
             EnvironmentPayload environment,
             @JsonProperty("existing_test_cases")
             List<ScenarioExistingTestCasePayload> existing_test_cases,
+            @JsonProperty("existing_scenarios")
+            List<ExistingScenarioSummary> existing_scenarios,
             @JsonProperty("max_scenarios")
             Integer max_scenarios,
             @JsonProperty("max_steps_per_scenario")

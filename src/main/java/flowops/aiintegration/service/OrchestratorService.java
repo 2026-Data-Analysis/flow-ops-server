@@ -16,11 +16,15 @@ import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ReportContextPayload;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.ExistingScenarioSummary;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
+import flowops.scenario.domain.entity.Scenario;
+import flowops.scenario.repository.ScenarioRepository;
+import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
@@ -28,6 +32,7 @@ import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +44,8 @@ import org.springframework.stereotype.Service;
 public class OrchestratorService {
 
     private final AiClient aiClient;
+    private final ScenarioRepository scenarioRepository;
+    private final ScenarioStepRepository scenarioStepRepository;
 
     public OrchestratorDispatchResponse dispatch(OrchestratorDispatchRequest request) {
         String traceId = UUID.randomUUID().toString();
@@ -211,6 +218,7 @@ public class OrchestratorService {
                 new ScenarioApiInventoryPayload(projectId, endpoints),
                 environmentPayload(ctx),
                 "RECOMMEND".equals(mode) ? List.of() : null,
+                existingScenarioSummaries(request.projectId()),
                 intOrNull(ctx, "max_scenarios"),
                 intOrNull(ctx, "max_steps_per_scenario")
         );
@@ -338,5 +346,29 @@ public class OrchestratorService {
     private String firstText(JsonNode node, String field, String fallback) {
         String value = textOrNull(node, field);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private List<ExistingScenarioSummary> existingScenarioSummaries(String projectId) {
+        if (projectId == null || projectId.isBlank()) {
+            return List.of();
+        }
+        try {
+            long appId = Long.parseLong(projectId.trim());
+            return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId).stream()
+                    .map(scenario -> {
+                        List<Long> stepApiIds = scenarioStepRepository
+                                .findByScenarioIdOrderByStepOrderAsc(scenario.getId())
+                                .stream()
+                                .map(step -> step.getApiInventory() != null
+                                        ? step.getApiInventory().getId()
+                                        : step.getApiEndpoint() != null ? step.getApiEndpoint().getId() : null)
+                                .filter(Objects::nonNull)
+                                .toList();
+                        return new ExistingScenarioSummary(scenario.getName(), stepApiIds);
+                    })
+                    .toList();
+        } catch (NumberFormatException e) {
+            return List.of();
+        }
     }
 }

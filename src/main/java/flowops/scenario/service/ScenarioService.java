@@ -27,6 +27,7 @@ import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
+import flowops.integration.ai.AiAgentContracts.ExistingScenarioSummary;
 import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
@@ -50,10 +51,12 @@ import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.repository.TestCaseRepository;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -380,6 +383,7 @@ public class ScenarioService {
                 new ScenarioApiInventoryPayload(projectId, apis),
                 environmentPayload(request, resolveEnvironment(request, app)),
                 "RECOMMEND".equals(mode) ? existingTestCases(app.getId()) : null,
+                existingScenarios(app.getId()),
                 maxScenarios(request, mode),
                 maxStepsPerScenario(request, mode)
         );
@@ -481,6 +485,11 @@ public class ScenarioService {
                     .filter(environment -> environment.getApp() != null && environment.getApp().getId().equals(app.getId()))
                     .orElse(null);
         }
+        if (app.getDefaultBranch() != null && !app.getDefaultBranch().isBlank()) {
+            return environmentRepository
+                    .findFirstByAppIdAndBranchNameOrderByCreatedAtAsc(app.getId(), app.getDefaultBranch())
+                    .orElseGet(() -> environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(app.getId()).orElse(null));
+        }
         return environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(app.getId()).orElse(null);
     }
 
@@ -532,6 +541,22 @@ public class ScenarioService {
     private List<ScenarioExistingTestCasePayload> existingTestCases(Long appId) {
         return testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(appId).stream()
                 .map(this::toScenarioExistingTestCasePayload)
+                .toList();
+    }
+
+    private List<ExistingScenarioSummary> existingScenarios(Long appId) {
+        return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId).stream()
+                .map(scenario -> {
+                    List<Long> stepApiIds = scenarioStepRepository
+                            .findByScenarioIdOrderByStepOrderAsc(scenario.getId())
+                            .stream()
+                            .map(step -> step.getApiInventory() != null
+                                    ? step.getApiInventory().getId()
+                                    : step.getApiEndpoint() != null ? step.getApiEndpoint().getId() : null)
+                            .filter(Objects::nonNull)
+                            .toList();
+                    return new ExistingScenarioSummary(scenario.getName(), stepApiIds);
+                })
                 .toList();
     }
 
