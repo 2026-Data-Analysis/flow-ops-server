@@ -330,7 +330,9 @@ public class ScenarioService {
                     apiIds.size(),
                     inventories.size());
         }
-        return inventories.size() == apiIds.size() ? inventories : List.of();
+        // 일부만 매칭되더라도 매칭된 인벤토리를 사용한다. (전부 버리면 엔드포인트 fallback에서
+        // 인벤토리 ID를 ApiEndpoint로 조회하다 RESOURCE_NOT_FOUND가 발생함)
+        return inventories;
     }
 
     private List<ApiEndpoint> scenarioEndpoints(Long appId, List<Long> apiIds) {
@@ -339,9 +341,12 @@ public class ScenarioService {
             log.info("Resolved scenario API endpoints by app fallback. appId={}, endpointCount={}", appId, endpoints.size());
             return endpoints;
         }
+        // 누락된 id가 있어도 throw하지 않고 조회된 엔드포인트만 사용한다.
         List<ApiEndpoint> endpoints = apiIds.stream()
-                .map(apiEndpointService::getApiEndpoint)
-                .filter(endpoint -> endpoint.getApp().getId().equals(appId))
+                .map(apiEndpointRepository::findById)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .filter(endpoint -> endpoint.getApp() != null && endpoint.getApp().getId().equals(appId))
                 .toList();
         log.info("Resolved scenario API endpoints by requested ids fallback. appId={}, requestedApiIdCount={}, endpointCount={}",
                 appId,
