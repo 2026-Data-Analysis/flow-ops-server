@@ -1,6 +1,7 @@
 package flowops.aiintegration.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import flowops.testgeneration.dto.response.GeneratedTestCaseDraftResponse;
 import java.util.List;
 
 public record OrchestratorDispatchResponse(
@@ -39,5 +40,11 @@ public record OrchestratorDispatchResponse(
                 @JsonProperty("suggested_fix") String suggestedFix
         ) {
         }
+    }
+
+    public record TestCaseAgentData(
+            Long generationId,
+            List<GeneratedTestCaseDraftResponse> drafts
+    ) {
     }
 }

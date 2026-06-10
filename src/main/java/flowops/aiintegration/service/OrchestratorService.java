@@ -1,6 +1,8 @@
 package flowops.aiintegration.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.aiintegration.client.AiClient;
 import flowops.aiintegration.dto.request.OrchestratorDispatchRequest;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse;
@@ -8,6 +10,14 @@ import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.AgentResu
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.IncidentAgentData;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.IncidentAgentData.RootCause;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.OrchestratorDispatchData;
+import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.TestCaseAgentData;
+import flowops.api.domain.entity.ApiEndpoint;
+import flowops.api.domain.entity.ApiMethod;
+import flowops.api.service.ApiEndpointService;
+import flowops.app.domain.entity.App;
+import flowops.app.service.AppService;
+import flowops.global.exception.ApiException;
+import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
@@ -26,17 +36,29 @@ import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
+import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorResponse;
 import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
+import flowops.testgeneration.domain.entity.GeneratedTestCaseDraft;
+import flowops.testgeneration.domain.entity.TestGeneration;
+import flowops.testgeneration.domain.entity.TestGenerationApiSelection;
+import flowops.testgeneration.domain.entity.TestGenerationStatus;
+import flowops.testgeneration.dto.response.GeneratedTestCaseDraftResponse;
+import flowops.testgeneration.repository.GeneratedTestCaseDraftRepository;
+import flowops.testgeneration.repository.TestGenerationApiSelectionRepository;
+import flowops.testgeneration.repository.TestGenerationRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -46,7 +68,14 @@ public class OrchestratorService {
     private final AiClient aiClient;
     private final ScenarioRepository scenarioRepository;
     private final ScenarioStepRepository scenarioStepRepository;
+    private final AppService appService;
+    private final ApiEndpointService apiEndpointService;
+    private final TestGenerationRepository testGenerationRepository;
+    private final TestGenerationApiSelectionRepository selectionRepository;
+    private final GeneratedTestCaseDraftRepository draftRepository;
+    private final ObjectMapper objectMapper;
 
+    @Transactional
     public OrchestratorDispatchResponse dispatch(OrchestratorDispatchRequest request) {
         String traceId = UUID.randomUUID().toString();
         JsonNode ctx = request.context();
@@ -121,15 +150,19 @@ public class OrchestratorService {
         String projectId = request.projectId() != null ? request.projectId() : "unknown";
         String baseUrl = textOrNull(ctx, "base_url");
         String envName = textOrNull(ctx, "env_name");
+        App app = appService.getApp(parseRequiredAppId(projectId));
 
         List<TestCaseApiPayload> apis = new ArrayList<>();
+        Map<String, ApiEndpoint> responseApiIdToEndpoint = new LinkedHashMap<>();
         JsonNode inventory = ctx.get("api_inventory");
         if (inventory != null && inventory.has("endpoints")) {
             for (JsonNode ep : inventory.get("endpoints")) {
+                ApiEndpoint endpoint = resolveEndpoint(app.getId(), ep);
+                registerEndpoint(responseApiIdToEndpoint, ep, endpoint);
                 apis.add(new TestCaseApiPayload(
-                        textOrNull(ep, "endpoint_id"),
-                        textOrNull(ep, "method"),
-                        textOrNull(ep, "path"),
+                        endpointId(ep, endpoint),
+                        endpoint.getMethod().name(),
+                        endpoint.getPath(),
                         null,
                         ep.get("request_body_schema"),
                         ep.get("response_schema"),
@@ -142,11 +175,30 @@ public class OrchestratorService {
             }
         }
 
+        TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
+                .app(app)
+                .environment(null)
+                .status(TestGenerationStatus.PROCESSING)
+                .requestedBy("orchestrator")
+                .contextSummary(request.userPrompt())
+                .existingCount(0)
+                .newCount(0)
+                .duplicateCount(0)
+                .createdAt(LocalDateTime.now())
+                .build());
+        responseApiIdToEndpoint.values().stream()
+                .distinct()
+                .map(endpoint -> TestGenerationApiSelection.builder()
+                        .generation(generation)
+                        .apiEndpoint(endpoint)
+                        .build())
+                .forEach(selectionRepository::save);
+
         TestCaseGeneratorRequest aiReq = new TestCaseGeneratorRequest(
                 "testcase-generator",
                 UUID.randomUUID().toString(),
                 "orchestrator",
-                new ProjectPayload(projectId, null, null),
+                new ProjectPayload(projectId, String.valueOf(app.getId()), app.getName()),
                 new flowops.integration.ai.AiAgentContracts.EnvironmentPayload(
                         null,
                         envName,
@@ -158,17 +210,30 @@ public class OrchestratorService {
                 ),
                 new MetadataPayload("ko", LocalDateTime.now(), "orchestrator"),
                 new flowops.integration.ai.AiAgentContracts.TestGenerationContext(
-                        null, "FROM_SCRATCH", null, null, null, request.userPrompt()),
+                        String.valueOf(generation.getId()), "FROM_SCRATCH", null, null, null, request.userPrompt()),
                 apis,
                 apis,
                 List.of(),
                 null
         );
 
-        TestCaseGeneratorResponse res = aiClient.generateTestCaseDrafts(aiReq);
+        List<GeneratedTestCaseDraft> savedDrafts;
+        try {
+            TestCaseGeneratorResponse res = aiClient.generateTestCaseDrafts(aiReq);
+            savedDrafts = saveGeneratedDrafts(generation, res, responseApiIdToEndpoint);
+            int duplicateCount = (int) savedDrafts.stream().filter(GeneratedTestCaseDraft::isDuplicate).count();
+            generation.markCompleted(savedDrafts.size() - duplicateCount, savedDrafts.size() - duplicateCount, duplicateCount, null);
+        } catch (Exception exception) {
+            generation.markFailed();
+            throw exception;
+        }
 
-        List<AgentResult> results = List.of(new AgentResult("testcase", true, res, null));
-        int count = res != null && res.drafts() != null ? res.drafts().size() : 0;
+        TestCaseAgentData agentData = new TestCaseAgentData(
+                generation.getId(),
+                savedDrafts.stream().map(GeneratedTestCaseDraftResponse::from).toList()
+        );
+        List<AgentResult> results = List.of(new AgentResult("testcase", true, agentData, null));
+        int count = savedDrafts.size();
 
         return new OrchestratorDispatchResponse(
                 true,
@@ -176,6 +241,171 @@ public class OrchestratorService {
                         count + "개의 테스트 케이스 초안이 생성되었습니다."),
                 null, null, traceId
         );
+    }
+
+    private List<GeneratedTestCaseDraft> saveGeneratedDrafts(
+            TestGeneration generation,
+            TestCaseGeneratorResponse response,
+            Map<String, ApiEndpoint> responseApiIdToEndpoint
+    ) {
+        if (response == null || response.drafts() == null) {
+            return List.of();
+        }
+        List<GeneratedTestCaseDraft> savedDrafts = new ArrayList<>();
+        for (TestCaseDraftPayload draft : response.drafts()) {
+            ApiEndpoint endpoint = resolveDraftEndpoint(draft, responseApiIdToEndpoint);
+            savedDrafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
+                    .generation(generation)
+                    .apiEndpoint(endpoint)
+                    .title(defaultIfBlank(draft.title(), endpoint.getMethod() + " " + endpoint.getPath()))
+                    .description(draft.description())
+                    .type(defaultIfBlank(draft.type(), "REGRESSION"))
+                    .riskLevel(draft.risk_level())
+                    .userRole(draft.userRole())
+                    .stateCondition(draft.stateCondition())
+                    .dataVariant(draft.dataVariant())
+                    .requestSpec(jsonToStorageText(mergeExecutionTarget(
+                            draft.requestSpec(),
+                            draft.execution_endpoint(),
+                            draft.execution_method(),
+                            endpoint
+                    )))
+                    .expectedSpec(jsonToStorageText(draft.expectedSpec()))
+                    .assertionSpec(jsonToStorageText(draft.assertionSpec()))
+                    .duplicate(draft.duplicate())
+                    .selectedForSave(false)
+                    .createdAt(LocalDateTime.now())
+                    .build()));
+        }
+        return savedDrafts;
+    }
+
+    private ApiEndpoint resolveDraftEndpoint(TestCaseDraftPayload draft, Map<String, ApiEndpoint> responseApiIdToEndpoint) {
+        ApiEndpoint endpoint = firstEndpoint(responseApiIdToEndpoint, draft.apiId(), draft.endpoint_id());
+        if (endpoint != null) {
+            return endpoint;
+        }
+        throw new ApiException(
+                ErrorCode.EXTERNAL_SERVICE_ERROR,
+                "AI response did not include a resolvable apiId or endpoint_id."
+        );
+    }
+
+    private ApiEndpoint firstEndpoint(Map<String, ApiEndpoint> endpoints, String... keys) {
+        for (String key : keys) {
+            if (key != null && endpoints.containsKey(key)) {
+                return endpoints.get(key);
+            }
+        }
+        return null;
+    }
+
+    private JsonNode mergeExecutionTarget(JsonNode requestSpec, String executionEndpoint, String executionMethod, ApiEndpoint endpoint) {
+        ObjectNode target = requestSpec != null && requestSpec.isObject()
+                ? requestSpec.deepCopy()
+                : objectMapper.createObjectNode();
+        String resolvedEndpoint = defaultIfBlank(executionEndpoint, endpoint.getPath());
+        String resolvedMethod = defaultIfBlank(executionMethod, endpoint.getMethod().name());
+        if (!target.has("endpoint") && !target.has("path")) {
+            target.put("endpoint", resolvedEndpoint);
+        }
+        if (!target.has("method") && !target.has("httpMethod") && !target.has("http_method")) {
+            target.put("method", resolvedMethod.toUpperCase());
+        }
+        if (requestSpec != null
+                && !requestSpec.isNull()
+                && !requestSpec.isMissingNode()
+                && !requestSpec.isObject()
+                && !target.has("body")) {
+            target.set("body", requestSpec);
+        }
+        return target;
+    }
+
+    private String jsonToStorageText(JsonNode value) {
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isTextual()) {
+            return value.asText();
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            return value.toString();
+        }
+    }
+
+    private void registerEndpoint(Map<String, ApiEndpoint> endpoints, JsonNode payload, ApiEndpoint endpoint) {
+        putEndpoint(endpoints, textOrNull(payload, "endpoint_id"), endpoint);
+        putEndpoint(endpoints, textOrNull(payload, "apiId"), endpoint);
+        putEndpoint(endpoints, String.valueOf(endpoint.getId()), endpoint);
+        putEndpoint(endpoints, endpoint.getMethod().name() + ":" + endpoint.getPath(), endpoint);
+    }
+
+    private void putEndpoint(Map<String, ApiEndpoint> endpoints, String key, ApiEndpoint endpoint) {
+        if (key != null && !key.isBlank()) {
+            endpoints.put(key, endpoint);
+        }
+    }
+
+    private ApiEndpoint resolveEndpoint(Long appId, JsonNode endpointPayload) {
+        Long endpointId = parseLongOrNull(firstText(endpointPayload, "endpoint_id", textOrNull(endpointPayload, "apiId")));
+        if (endpointId != null) {
+            ApiEndpoint endpoint = apiEndpointService.getApiEndpoint(endpointId);
+            if (!Objects.equals(endpoint.getApp().getId(), appId)) {
+                throw new ApiException(ErrorCode.INVALID_INPUT, "API endpoint does not belong to the requested app.");
+            }
+            return endpoint;
+        }
+        ApiMethod method = parseMethod(textOrNull(endpointPayload, "method"));
+        String path = textOrNull(endpointPayload, "path");
+        String endpointKey = textOrNull(endpointPayload, "endpoint_id");
+        if ((method == null || path == null || path.isBlank()) && endpointKey != null) {
+            int separator = endpointKey.indexOf(':');
+            if (separator > 0) {
+                method = parseMethod(endpointKey.substring(0, separator));
+                path = endpointKey.substring(separator + 1);
+            }
+        }
+        if (method == null || path == null || path.isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "api_inventory endpoint requires endpoint_id or method/path.");
+        }
+        return apiEndpointService.findFirstByAppIdAndMethodAndPath(appId, method, path);
+    }
+
+    private String endpointId(JsonNode payload, ApiEndpoint endpoint) {
+        String endpointId = firstText(payload, "endpoint_id", textOrNull(payload, "apiId"));
+        return endpointId == null || endpointId.isBlank()
+                ? endpoint.getMethod().name() + ":" + endpoint.getPath()
+                : endpointId;
+    }
+
+    private Long parseRequiredAppId(String projectId) {
+        Long appId = parseLongOrNull(projectId);
+        if (appId == null) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "project_id must be a FlowOps app ID for testcase generation.");
+        }
+        return appId;
+    }
+
+    private Long parseLongOrNull(String value) {
+        try {
+            return value == null || value.isBlank() ? null : Long.valueOf(value.trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private ApiMethod parseMethod(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return ApiMethod.valueOf(value.trim().toUpperCase());
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private OrchestratorDispatchResponse dispatchScenario(OrchestratorDispatchRequest request, String traceId) {

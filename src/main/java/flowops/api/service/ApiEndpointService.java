@@ -95,6 +95,15 @@ public class ApiEndpointService {
     }
 
     @Transactional(readOnly = true)
+    public ApiEndpoint findFirstByAppIdAndMethodAndPath(Long appId, ApiMethod method, String path) {
+        return apiEndpointRepository.findFirstByAppIdAndMethodAndPath(appId, method, path)
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        "API 엔드포인트를 찾을 수 없습니다. appId=%s, method=%s, path=%s".formatted(appId, method, path)
+                ));
+    }
+
+    @Transactional(readOnly = true)
     public Optional<ApiEndpoint> findCleanupEndpoint(ApiEndpoint createdEndpoint) {
         if (createdEndpoint == null || createdEndpoint.getApp() == null || createdEndpoint.getApp().getId() == null) {
             return Optional.empty();

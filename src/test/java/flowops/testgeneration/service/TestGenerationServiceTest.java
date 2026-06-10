@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -108,6 +109,64 @@ class TestGenerationServiceTest {
     }
 
     @Test
+    void saveDraftsSkipsRepeatedDraftIdsAndSavesOnce() {
+        App generationApp = app(1L);
+        TestGeneration generation = generation(77L, generationApp);
+        ApiEndpoint endpoint = endpoint(10L, generationApp);
+        GeneratedTestCaseDraft draft = draft(1001L, generation, endpoint);
+
+        when(testGenerationRepository.findById(77L)).thenReturn(Optional.of(generation));
+        when(draftRepository.findByGenerationIdAndIdIn(77L, List.of(1001L))).thenReturn(List.of(draft));
+        when(testCaseRepository.save(any(TestCase.class))).thenAnswer(invocation -> {
+            TestCase testCase = invocation.getArgument(0);
+            ReflectionTestUtils.setField(testCase, "id", 501L);
+            return testCase;
+        });
+
+        SaveGeneratedDraftsRequest request = new SaveGeneratedDraftsRequest(
+                null,
+                List.of(saveRequest(1001L), saveRequest(1001L))
+        );
+
+        var response = service().saveDrafts(77L, request);
+
+        assertThat(response.savedCount()).isEqualTo(1);
+        assertThat(response.savedTestCaseIds()).containsExactly(501L);
+        verify(testCaseRepository, times(1)).save(any(TestCase.class));
+    }
+
+    @Test
+    void saveDraftsSkipsDuplicateDraftsAndSavesNewDraftsOnly() {
+        App generationApp = app(1L);
+        TestGeneration generation = generation(77L, generationApp);
+        ApiEndpoint endpoint = endpoint(10L, generationApp);
+        GeneratedTestCaseDraft newDraft = draft(1001L, generation, endpoint, false);
+        GeneratedTestCaseDraft duplicateDraft = draft(1002L, generation, endpoint, true);
+
+        when(testGenerationRepository.findById(77L)).thenReturn(Optional.of(generation));
+        when(draftRepository.findByGenerationIdAndIdIn(77L, List.of(1001L, 1002L)))
+                .thenReturn(List.of(newDraft, duplicateDraft));
+        when(testCaseRepository.save(any(TestCase.class))).thenAnswer(invocation -> {
+            TestCase testCase = invocation.getArgument(0);
+            ReflectionTestUtils.setField(testCase, "id", 501L);
+            return testCase;
+        });
+
+        SaveGeneratedDraftsRequest request = new SaveGeneratedDraftsRequest(
+                null,
+                List.of(saveRequest(1001L), saveRequest(1002L))
+        );
+
+        var response = service().saveDrafts(77L, request);
+
+        assertThat(response.savedCount()).isEqualTo(1);
+        assertThat(response.savedTestCaseIds()).containsExactly(501L);
+        assertThat(newDraft.isSelectedForSave()).isTrue();
+        assertThat(duplicateDraft.isSelectedForSave()).isFalse();
+        verify(testCaseRepository, times(1)).save(any(TestCase.class));
+    }
+
+    @Test
     void generateDraftsIgnoresAiDuplicateFlagWhenNoExistingTitleMatches() {
         App generationApp = app(1L);
         TestGeneration generation = generation(77L, generationApp);
@@ -173,19 +232,23 @@ class TestGenerationServiceTest {
     private SaveGeneratedDraftsRequest saveDraftsRequest(Long appId) {
         return new SaveGeneratedDraftsRequest(
                 appId,
-                List.of(new TestCaseDraftSaveRequest(
-                        1001L,
-                        "Order creation succeeds",
-                        "Verifies order creation.",
-                        "HAPPY_PATH",
-                        null,
-                        "CUSTOMER",
-                        "Signed in",
-                        "single product",
-                        "{\"body\":{\"productId\":1}}",
-                        "{\"status\":201}",
-                        "{\"assertions\":[\"status == 201\"]}"
-                ))
+                List.of(saveRequest(1001L))
+        );
+    }
+
+    private TestCaseDraftSaveRequest saveRequest(Long draftId) {
+        return new TestCaseDraftSaveRequest(
+                draftId,
+                "Order creation succeeds",
+                "Verifies order creation.",
+                "HAPPY_PATH",
+                null,
+                "CUSTOMER",
+                "Signed in",
+                "single product",
+                "{\"body\":{\"productId\":1}}",
+                "{\"status\":201}",
+                "{\"assertions\":[\"status == 201\"]}"
         );
     }
 
@@ -223,6 +286,10 @@ class TestGenerationServiceTest {
     }
 
     private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint) {
+        return draft(id, generation, endpoint, false);
+    }
+
+    private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint, boolean duplicate) {
         GeneratedTestCaseDraft draft = GeneratedTestCaseDraft.builder()
                 .generation(generation)
                 .apiEndpoint(endpoint)
@@ -236,7 +303,7 @@ class TestGenerationServiceTest {
                 .requestSpec("{\"body\":{\"productId\":1}}")
                 .expectedSpec("{\"status\":201}")
                 .assertionSpec("{\"assertions\":[\"status == 201\"]}")
-                .duplicate(false)
+                .duplicate(duplicate)
                 .selectedForSave(false)
                 .createdAt(LocalDateTime.now())
                 .build();

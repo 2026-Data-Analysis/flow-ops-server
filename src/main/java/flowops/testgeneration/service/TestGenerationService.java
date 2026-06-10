@@ -34,7 +34,7 @@ import flowops.testgeneration.repository.TestGenerationRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -121,18 +121,11 @@ public class TestGenerationService {
         TestGeneration generation = getGeneration(generationId);
         App generationApp = generation.getApp();
         validateRequestedApp(generationApp, request.appId());
-        List<Long> draftIds = request.testCases().stream()
-                .map(TestCaseDraftSaveRequest::draftId)
-                .toList();
-        Map<Long, TestCaseDraftSaveRequest> saveRequests = new HashMap<>();
+        Map<Long, TestCaseDraftSaveRequest> saveRequests = new LinkedHashMap<>();
         for (TestCaseDraftSaveRequest testCaseRequest : request.testCases()) {
-            if (saveRequests.put(testCaseRequest.draftId(), testCaseRequest) != null) {
-                throw new flowops.global.exception.ApiException(
-                        flowops.global.response.ErrorCode.INVALID_INPUT,
-                        "같은 초안을 중복으로 저장할 수 없습니다."
-                );
-            }
+            saveRequests.putIfAbsent(testCaseRequest.draftId(), testCaseRequest);
         }
+        List<Long> draftIds = List.copyOf(saveRequests.keySet());
 
         List<GeneratedTestCaseDraft> drafts = draftRepository.findByGenerationIdAndIdIn(generationId, draftIds);
         if (drafts.size() != draftIds.size()) {
@@ -146,6 +139,9 @@ public class TestGenerationService {
         LinkedHashSet<Long> apiIds = new LinkedHashSet<>();
         for (GeneratedTestCaseDraft draft : drafts) {
             validateDraftApp(generationApp, draft);
+            if (draft.isDuplicate()) {
+                continue;
+            }
             TestCaseDraftSaveRequest saveRequest = saveRequests.get(draft.getId());
             draft.selectForSave();
             TestCase savedTestCase = testCaseRepository.save(TestCase.builder()
