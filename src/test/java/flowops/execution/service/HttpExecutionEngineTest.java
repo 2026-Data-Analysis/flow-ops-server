@@ -29,6 +29,9 @@ import flowops.scenario.domain.entity.ScenarioSource;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.domain.entity.ScenarioType;
 import flowops.scenario.repository.ScenarioStepRepository;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.domain.entity.TestCaseSource;
+import flowops.testcase.domain.entity.TestCaseType;
 import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
 import java.io.IOException;
@@ -122,6 +125,38 @@ class HttpExecutionEngineTest {
         assertThat(captor.getAllValues()).extracting(TestValidationResult::getAssertionName)
                 .containsExactly("HTTP status", "Response body");
         assertThat(captor.getAllValues()).allMatch(TestValidationResult::isPassed);
+    }
+
+    @Test
+    void executeTestCasePassesOnMatchingStatusEvenWhenBodyDiffers() throws Exception {
+        // 응답 body가 expectedSpec과 달라도 상태 코드만 일치하면 성공으로 판정해야 한다.
+        server.createContext("/orders", exchange -> writeResponse(exchange, 201, "{\"id\":99,\"status\":\"different\"}"));
+        server.start();
+
+        TestCase testCase = TestCase.builder()
+                .app(App.builder().name("FlowOps").build())
+                .apiEndpoint(api(ApiMethod.POST, "/orders"))
+                .name("Order creation succeeds")
+                .description("Creates an order")
+                .type(TestCaseType.HAPPY_PATH)
+                .testLevel(TestLevel.REGRESSION)
+                .source(TestCaseSource.AUTO)
+                .requestSpec("{\"method\":\"POST\",\"endpoint\":\"/orders\",\"body\":{\"item\":\"book\"}}")
+                .expectedSpec("{\"statusCode\":201,\"body\":{\"status\":\"created\"}}")
+                .assertionSpec("{\"statusCode\":201}")
+                .active(true)
+                .version(1)
+                .build();
+
+        ExecutionStepLog log = engine.executeTestCase(execution(environment("{}")), testCase);
+
+        assertThat(log.getStatus()).isEqualTo(ExecutionStepStatus.SUCCESS);
+        assertThat(log.getResponseCode()).isEqualTo(201);
+        ArgumentCaptor<TestValidationResult> captor = ArgumentCaptor.forClass(TestValidationResult.class);
+        org.mockito.Mockito.verify(validationResultRepository, org.mockito.Mockito.times(1)).save(captor.capture());
+        // body 비교 없이 상태 코드만 검증한다.
+        assertThat(captor.getAllValues()).extracting(TestValidationResult::getAssertionName)
+                .containsExactly("HTTP status");
     }
 
     @Test

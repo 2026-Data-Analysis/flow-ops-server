@@ -69,6 +69,9 @@ public class HttpExecutionEngine {
     }
 
     public ExecutionStepLog executeTestCase(Execution execution, TestCase testCase, String stepName) {
+        // 테스트 케이스 성공 여부는 expectedSpec의 상태 코드로만 판단한다.
+        // 응답 body는 동일하지 않아도 실패로 보지 않으며, body 검토는 로그 분석 에이전트가 담당한다.
+        ExpectedDefinition statusOnlyExpected = ExpectedDefinition.statusOnly(parseExpectedDefinition(testCase.getExpectedSpec()));
         return execute(
                 execution,
                 testCase,
@@ -76,7 +79,7 @@ public class HttpExecutionEngine {
                 testCase.getApiEndpoint(),
                 stepName,
                 parseRequestDefinition(firstText(testCase.getRequestSpec(), testCase.getApiInventory() == null ? null : testCase.getApiInventory().getRequestSchema(), testCase.getApiEndpoint().getRequestSchema())),
-                parseExpectedDefinition(testCase.getExpectedSpec())
+                statusOnlyExpected
         );
     }
 
@@ -823,6 +826,11 @@ public class HttpExecutionEngine {
 
         static ExpectedDefinition responseStatus() {
             return new ExpectedDefinition(null, null);
+        }
+
+        // 상태 코드만 검증하도록 body 기대값을 제거한 정의를 만든다.
+        static ExpectedDefinition statusOnly(ExpectedDefinition source) {
+            return new ExpectedDefinition(source == null ? null : source.exactStatus(), null);
         }
 
     }
