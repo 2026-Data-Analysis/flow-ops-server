@@ -295,6 +295,11 @@ public class WebClientAiTestGenerationGateway implements AiTestGenerationGateway
         if (response == null || response.drafts() == null) {
             return List.of();
         }
+        // 에이전트가 실제로 내려준 draft별 type/risk_level 원본을 그대로 로그로 남긴다.
+        // (테스트 레벨이 우리 쪽에서 하드코딩/변형되는지, 에이전트가 동일 값을 주는지 확인용)
+        response.drafts().forEach(draft -> log.info(
+                "[AI testcase draft] title='{}' type='{}' risk_level(raw from agent)='{}'",
+                draft.title(), draft.type(), draft.risk_level()));
         return response.drafts().stream()
                 .map(draft -> toCommand(draft, responseApiIdToSourceApiId))
                 .toList();

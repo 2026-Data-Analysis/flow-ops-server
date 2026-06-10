@@ -253,6 +253,9 @@ public class OrchestratorService {
         }
         List<GeneratedTestCaseDraft> savedDrafts = new ArrayList<>();
         for (TestCaseDraftPayload draft : response.drafts()) {
+            // 에이전트가 내려준 draft별 type/risk_level 원본 로그 (테스트 레벨 매핑 검증용)
+            log.info("[Orchestrator dispatch testcase draft] title='{}' type='{}' risk_level(raw from agent)='{}'",
+                    draft.title(), draft.type(), draft.risk_level());
             ApiEndpoint endpoint = resolveDraftEndpoint(draft, responseApiIdToEndpoint);
             savedDrafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
                     .generation(generation)

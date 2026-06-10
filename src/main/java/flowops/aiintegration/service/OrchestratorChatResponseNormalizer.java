@@ -121,6 +121,10 @@ public class OrchestratorChatResponseNormalizer {
         for (JsonNode draft : data.path("drafts")) {
             ApiEndpoint endpoint = resolveDraftEndpoint(app.getId(), draft, endpoints);
             selectedEndpoints.putIfAbsent(endpoint.getId(), endpoint);
+            // 에이전트가 내려준 draft별 type/risk_level 원본 로그 (테스트 레벨 매핑 검증용)
+            log.info("[Orchestrator testcase draft] title='{}' type='{}' risk_level(raw from agent)='{}'",
+                    text(draft, "title"), text(draft, "type"),
+                    firstText(draft, "riskLevel", text(draft, "risk_level")));
             savedDrafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
                     .generation(generation)
                     .apiEndpoint(endpoint)
