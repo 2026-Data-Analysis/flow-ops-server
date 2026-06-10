@@ -189,14 +189,23 @@ public class TestCaseService {
 
     @Transactional(readOnly = true)
     public TestCase getActiveTestCase(Long testCaseId) {
+        validatePositiveId(testCaseId);
         return testCaseRepository.findByIdAndActiveTrue(testCaseId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "테스트케이스를 찾을 수 없습니다."));
     }
 
     @Transactional(readOnly = true)
     public TestCase getTestCase(Long testCaseId) {
+        validatePositiveId(testCaseId);
         return testCaseRepository.findById(testCaseId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "테스트케이스를 찾을 수 없습니다."));
+    }
+
+    // 0 또는 음수 ID는 유효하지 않은 요청(400)으로 처리한다.
+    private void validatePositiveId(Long testCaseId) {
+        if (testCaseId == null || testCaseId <= 0) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "테스트케이스 ID는 1 이상의 값이어야 합니다.");
+        }
     }
 
     private void saveVersionSnapshot(TestCase testCase) {

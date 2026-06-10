@@ -73,6 +73,10 @@ public class ApiEndpointService {
 
     @Transactional(readOnly = true)
     public ApiEndpoint getApiEndpoint(Long apiId) {
+        // 0 또는 음수 ID는 유효하지 않은 요청(400)으로 처리한다.
+        if (apiId == null || apiId <= 0) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "API 엔드포인트 ID는 1 이상의 값이어야 합니다.");
+        }
         return apiEndpointRepository.findById(apiId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "API 엔드포인트를 찾을 수 없습니다. apiId=" + apiId));
     }

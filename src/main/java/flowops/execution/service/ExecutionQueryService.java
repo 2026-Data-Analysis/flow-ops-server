@@ -129,6 +129,10 @@ public class ExecutionQueryService {
 
     @Transactional(readOnly = true)
     public Execution findExecution(Long executionId) {
+        // 0 또는 음수 ID는 유효하지 않은 요청(400)으로 처리한다.
+        if (executionId == null || executionId <= 0) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Execution id must be a positive value.");
+        }
         return executionRepository.findById(executionId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "Execution not found."));
     }
