@@ -333,13 +333,34 @@ public class TestGenerationService {
     }
 
     private TestCaseType parseType(String type) {
+        if (type == null || type.isBlank()) {
+            return TestCaseType.HAPPY_PATH;
+        }
+        String normalized = type.trim().toUpperCase().replaceAll("[\\s-]+", "_");
         try {
-            return TestCaseType.valueOf(type);
-        } catch (IllegalArgumentException exception) {
-            throw new flowops.global.exception.ApiException(
-                    flowops.global.response.ErrorCode.INVALID_INPUT,
-                    "지원하지 않는 테스트 케이스 유형입니다: " + type
-            );
+            return TestCaseType.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            // AI 에이전트는 success/auth/edge 등 자유 표기로 type을 내려줄 수 있어 동의어를 표준 유형으로 매핑한다.
+            if (normalized.contains("HAPPY") || normalized.contains("SUCCESS") || normalized.equals("NORMAL")) {
+                return TestCaseType.HAPPY_PATH;
+            }
+            if (normalized.contains("AUTH")) {
+                return TestCaseType.AUTHORIZATION;
+            }
+            if (normalized.contains("PERF") || normalized.contains("LOAD") || normalized.contains("LATENCY")) {
+                return TestCaseType.PERFORMANCE;
+            }
+            if (normalized.contains("EDGE") || normalized.contains("BOUNDARY")) {
+                return TestCaseType.EDGE_CASE;
+            }
+            if (normalized.contains("VALID") || normalized.contains("INVALID")) {
+                return TestCaseType.VALIDATION;
+            }
+            if (normalized.contains("FAIL") || normalized.contains("ERROR")
+                    || normalized.contains("NEGATIVE") || normalized.contains("EXCEPTION")) {
+                return TestCaseType.FAILURE_HANDLING;
+            }
+            return TestCaseType.HAPPY_PATH;
         }
     }
 
@@ -348,12 +369,11 @@ public class TestGenerationService {
             return TestLevel.REGRESSION;
         }
         try {
-            return TestLevel.valueOf(requestedTestLevel.trim());
+            return TestLevel.valueOf(requestedTestLevel.trim().toUpperCase());
         } catch (IllegalArgumentException exception) {
-            throw new flowops.global.exception.ApiException(
-                    flowops.global.response.ErrorCode.INVALID_INPUT,
-                    "지원하지 않는 테스트 레벨입니다: " + requestedTestLevel
-            );
+            // 인식할 수 없는 테스트 레벨 값 때문에 저장 자체가 실패하지 않도록 기본값으로 보정한다.
+            log.warn("Unsupported test level '{}', defaulting to REGRESSION.", requestedTestLevel);
+            return TestLevel.REGRESSION;
         }
     }
 

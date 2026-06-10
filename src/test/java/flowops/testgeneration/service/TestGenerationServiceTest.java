@@ -96,6 +96,47 @@ class TestGenerationServiceTest {
     }
 
     @Test
+    void saveDraftsNormalizesNonEnumDraftTypeToHappyPath() {
+        App generationApp = app(1L);
+        TestGeneration generation = generation(77L, generationApp);
+        ApiEndpoint endpoint = endpoint(10L, generationApp);
+        // 에이전트가 "success" 같은 비표준 type을 내려도 저장이 실패하지 않고 HAPPY_PATH로 보정되어야 한다.
+        GeneratedTestCaseDraft draft = draft(1001L, generation, endpoint, "success");
+
+        when(testGenerationRepository.findById(77L)).thenReturn(Optional.of(generation));
+        when(draftRepository.findByGenerationIdAndIdIn(77L, List.of(1001L))).thenReturn(List.of(draft));
+        when(testCaseRepository.save(any(TestCase.class))).thenAnswer(invocation -> {
+            TestCase testCase = invocation.getArgument(0);
+            ReflectionTestUtils.setField(testCase, "id", 501L);
+            return testCase;
+        });
+
+        // type을 비워 초안의 type("success")이 사용되도록 한다.
+        SaveGeneratedDraftsRequest request = new SaveGeneratedDraftsRequest(
+                null,
+                List.of(new TestCaseDraftSaveRequest(
+                        1001L,
+                        "Order creation succeeds",
+                        "Verifies order creation.",
+                        null,
+                        null,
+                        "CUSTOMER",
+                        "Signed in",
+                        "single product",
+                        "{\"body\":{\"productId\":1}}",
+                        "{\"status\":201}",
+                        "{\"assertions\":[\"status == 201\"]}"
+                ))
+        );
+
+        service().saveDrafts(77L, request);
+
+        ArgumentCaptor<TestCase> captor = ArgumentCaptor.forClass(TestCase.class);
+        verify(testCaseRepository).save(captor.capture());
+        assertThat(captor.getValue().getType()).isEqualTo(TestCaseType.HAPPY_PATH);
+    }
+
+    @Test
     void saveDraftsRejectsRequestAppIdThatDiffersFromGenerationApp() {
         App generationApp = app(1L);
         TestGeneration generation = generation(77L, generationApp);
@@ -287,6 +328,28 @@ class TestGenerationServiceTest {
 
     private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint) {
         return draft(id, generation, endpoint, false);
+    }
+
+    private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint, String type) {
+        GeneratedTestCaseDraft draft = GeneratedTestCaseDraft.builder()
+                .generation(generation)
+                .apiEndpoint(endpoint)
+                .title("Order creation succeeds")
+                .description("Verifies order creation.")
+                .type(type)
+                .riskLevel("SMOKE")
+                .userRole("CUSTOMER")
+                .stateCondition("Signed in")
+                .dataVariant("single product")
+                .requestSpec("{\"body\":{\"productId\":1}}")
+                .expectedSpec("{\"status\":201}")
+                .assertionSpec("{\"assertions\":[\"status == 201\"]}")
+                .duplicate(false)
+                .selectedForSave(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+        ReflectionTestUtils.setField(draft, "id", id);
+        return draft;
     }
 
     private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint, boolean duplicate) {

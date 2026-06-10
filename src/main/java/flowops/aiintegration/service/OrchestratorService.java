@@ -259,7 +259,7 @@ public class OrchestratorService {
                     .apiEndpoint(endpoint)
                     .title(defaultIfBlank(draft.title(), endpoint.getMethod() + " " + endpoint.getPath()))
                     .description(draft.description())
-                    .type(defaultIfBlank(draft.type(), "REGRESSION"))
+                    .type(defaultIfBlank(draft.type(), "HAPPY_PATH"))
                     .riskLevel(draft.risk_level())
                     .userRole(draft.userRole())
                     .stateCondition(draft.stateCondition())

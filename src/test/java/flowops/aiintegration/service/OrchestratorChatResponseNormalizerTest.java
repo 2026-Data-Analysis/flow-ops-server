@@ -114,6 +114,60 @@ class OrchestratorChatResponseNormalizerTest {
         assertThat(draft.path("requestSpec").asText()).contains("\"endpoint\":\"/orders\"");
     }
 
+    @Test
+    void normalizeResolvesEndpointByNumericApiIdWhenContextHasNoInventory() throws Exception {
+        App app = app(1L);
+        ApiEndpoint endpoint = endpoint(1999L, app);
+        // 채팅 흐름은 context에 api_inventory를 포함하지 않는다.
+        JsonNode context = objectMapper.readTree("""
+                {"api_server_url": "http://localhost:8080", "env_name": "local"}
+                """);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "1999",
+                      "title": "Order creation succeeds",
+                      "type": "success"
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("1", "주문 생성 테스트 만들어줘", context);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-2"
+        );
+
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiEndpointService.getApiEndpoint(1999L)).thenReturn(endpoint);
+        when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
+            TestGeneration generation = invocation.getArgument(0);
+            ReflectionTestUtils.setField(generation, "id", 88L);
+            return generation;
+        });
+        when(draftRepository.save(any(GeneratedTestCaseDraft.class))).thenAnswer(invocation -> {
+            GeneratedTestCaseDraft draft = invocation.getArgument(0);
+            ReflectionTestUtils.setField(draft, "id", 2001L);
+            return draft;
+        });
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("selectedEndpoint").path("id").asLong()).isEqualTo(1999L);
+        assertThat(draft.path("selectedEndpoint").path("method").asText()).isEqualTo("POST");
+        assertThat(draft.path("selectedEndpoint").path("path").asText()).isEqualTo("/orders");
+        assertThat(draft.path("endpointName").asText()).isEqualTo("POST /orders");
+    }
+
     private OrchestratorChatResponseNormalizer service() {
         return new OrchestratorChatResponseNormalizer(
                 appService,

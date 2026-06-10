@@ -126,7 +126,7 @@ public class OrchestratorChatResponseNormalizer {
                     .apiEndpoint(endpoint)
                     .title(defaultIfBlank(text(draft, "title"), endpoint.getMethod() + " " + endpoint.getPath()))
                     .description(text(draft, "description"))
-                    .type(defaultIfBlank(text(draft, "type"), "REGRESSION"))
+                    .type(defaultIfBlank(text(draft, "type"), "HAPPY_PATH"))
                     .riskLevel(firstText(draft, "riskLevel", text(draft, "risk_level")))
                     .userRole(text(draft, "userRole"))
                     .stateCondition(text(draft, "stateCondition"))
@@ -201,6 +201,13 @@ public class OrchestratorChatResponseNormalizer {
         if (endpoint != null) {
             return endpoint;
         }
+        // 채팅 흐름은 context에 api_inventory가 없을 수 있어 endpoints 맵이 비어 있다.
+        // 이 경우 에이전트가 내려준 숫자 apiId/endpoint_id를 직접 조회해 method/path를 채운다.
+        // (이게 없으면 프론트가 엔드포인트명 대신 "API #<id>"로 표시된다.)
+        ApiEndpoint byId = resolveByEndpointId(appId, draft);
+        if (byId != null) {
+            return byId;
+        }
         EndpointTarget target = endpointTarget(draft);
         if (target == null) {
             target = endpointTarget(draft.get("selectedEndpoint"));
@@ -209,6 +216,34 @@ public class OrchestratorChatResponseNormalizer {
             throw new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
         }
         return apiEndpointService.findFirstByAppIdAndMethodAndPath(appId, target.method(), target.path());
+    }
+
+    private ApiEndpoint resolveByEndpointId(Long appId, JsonNode draft) {
+        Long endpointId = firstLong(
+                text(draft, "apiId"),
+                text(draft, "endpoint_id"),
+                nestedText(draft, "selectedEndpoint", "id")
+        );
+        if (endpointId == null) {
+            return null;
+        }
+        try {
+            ApiEndpoint endpoint = apiEndpointService.getApiEndpoint(endpointId);
+            return Objects.equals(endpoint.getApp().getId(), appId) ? endpoint : null;
+        } catch (Exception exception) {
+            log.debug("Failed to resolve orchestrator draft endpoint by id {}: {}", endpointId, exception.getMessage());
+            return null;
+        }
+    }
+
+    private Long firstLong(String... values) {
+        for (String value : values) {
+            Long parsed = parseLongOrNull(value);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
     }
 
     private void registerEndpoint(Map<String, ApiEndpoint> endpoints, JsonNode source, ApiEndpoint endpoint) {
