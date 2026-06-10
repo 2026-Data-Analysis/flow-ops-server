@@ -97,6 +97,7 @@ public class ApiInventoryService {
         List<ApiInventory> inventories = (normalizedKeyword == null
                 ? apiInventoryRepository.findByFilters(
                         projectId,
+                        null,
                         repositoryId,
                         blankToNull(effectiveBranchName),
                         method,
@@ -104,6 +105,7 @@ public class ApiInventoryService {
                 )
                 : apiInventoryRepository.findByFiltersAndKeyword(
                         projectId,
+                        null,
                         repositoryId,
                         blankToNull(effectiveBranchName),
                         method,
@@ -142,6 +144,7 @@ public class ApiInventoryService {
     ) {
         List<ApiInventory> inventories = findInventories(
                 projectId,
+                appId,
                 repositoryId,
                 branchName,
                 domainTag,
@@ -212,6 +215,7 @@ public class ApiInventoryService {
 
     private List<ApiInventory> findInventories(
             Long projectId,
+            Long appId,
             Long repositoryId,
             String branchName,
             String domainTag,
@@ -230,6 +234,7 @@ public class ApiInventoryService {
         return (normalizedKeyword == null
                 ? apiInventoryRepository.findByFilters(
                         projectId,
+                        appId,
                         repositoryId,
                         blankToNull(effectiveBranchName),
                         method,
@@ -237,6 +242,7 @@ public class ApiInventoryService {
                 )
                 : apiInventoryRepository.findByFiltersAndKeyword(
                         projectId,
+                        appId,
                         repositoryId,
                         blankToNull(effectiveBranchName),
                         method,

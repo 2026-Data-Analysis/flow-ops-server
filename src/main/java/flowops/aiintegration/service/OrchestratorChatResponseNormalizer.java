@@ -192,10 +192,15 @@ public class OrchestratorChatResponseNormalizer {
     private ApiEndpoint resolveContextEndpoint(Long appId, JsonNode endpointNode) {
         Long endpointId = parseLongOrNull(firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")));
         if (endpointId != null) {
-            return findEndpointByIdAndAppId(endpointId, appId)
-                    .orElseThrow(() -> new IllegalArgumentException("API endpoint does not belong to the requested app."));
+            java.util.Optional<ApiEndpoint> endpoint = findEndpointByIdAndAppId(endpointId, appId);
+            if (endpoint.isPresent()) {
+                return endpoint.get();
+            }
         }
         EndpointTarget target = endpointTarget(endpointNode);
+        if (target == null) {
+            throw new IllegalArgumentException("API endpoint does not belong to the requested app.");
+        }
         return findEndpointByMethodAndPath(appId, target.method(), target.path())
                 .orElseThrow(() -> new IllegalArgumentException("API endpoint does not belong to the requested app."));
     }

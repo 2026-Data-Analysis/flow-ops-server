@@ -1,5 +1,6 @@
 package flowops.aiintegration.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import flowops.aiintegration.client.AiClient;
 import flowops.aiintegration.service.OrchestratorChatResponseNormalizer;
 import flowops.global.response.ApiResponse;
@@ -22,6 +23,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/ai/agents")
 @RequiredArgsConstructor
+@Slf4j
 @Tag(name = "AI 에이전트", description = "테스트 케이스, 시나리오, 로그 분석, 장애 리포트 AI 연동 API")
 public class AiAgentController {
 
@@ -82,6 +85,7 @@ public class AiAgentController {
     public ApiResponse<OrchestratorChatResponse> chatWithOrchestrator(
             @Valid @RequestBody OrchestratorChatRequest request
     ) {
+        logOrchestratorChatScope(request);
         OrchestratorChatResponse response = aiClient.chatWithOrchestrator(request);
         return ApiResponse.success(orchestratorChatResponseNormalizer.normalize(request, response));
     }
@@ -92,5 +96,51 @@ public class AiAgentController {
             @Valid @RequestBody IncidentAnalyzeRequest request
     ) {
         return ApiResponse.success(aiClient.analyzeIncident(request));
+    }
+
+    private void logOrchestratorChatScope(OrchestratorChatRequest request) {
+        JsonNode context = request.context();
+        JsonNode inventory = context == null ? null : context.get("api_inventory");
+        JsonNode endpoints = inventory == null ? null : inventory.get("endpoints");
+        JsonNode lookup = context == null ? null : context.get("inventory_lookup");
+        int endpointCount = endpoints != null && endpoints.isArray() ? endpoints.size() : 0;
+        log.info("Orchestrator chat request scope. projectId={}, userPrompt={}, lookup={}, endpointCount={}, endpoints={}",
+                request.project_id(),
+                request.user_prompt(),
+                lookup,
+                endpointCount,
+                endpointSummaries(endpoints));
+    }
+
+    private String endpointSummaries(JsonNode endpoints) {
+        if (endpoints == null || !endpoints.isArray()) {
+            return "[]";
+        }
+        StringBuilder builder = new StringBuilder("[");
+        int limit = Math.min(endpoints.size(), 20);
+        for (int index = 0; index < limit; index++) {
+            if (index > 0) {
+                builder.append(", ");
+            }
+            JsonNode endpoint = endpoints.get(index);
+            builder.append(text(endpoint, "method"))
+                    .append(' ')
+                    .append(text(endpoint, "path"))
+                    .append(" id=")
+                    .append(text(endpoint, "endpoint_id"))
+                    .append(" op=")
+                    .append(text(endpoint, "operationId"))
+                    .append(" summary=")
+                    .append(text(endpoint, "summary"));
+        }
+        if (endpoints.size() > limit) {
+            builder.append(", ... +").append(endpoints.size() - limit);
+        }
+        return builder.append(']').toString();
+    }
+
+    private String text(JsonNode node, String fieldName) {
+        JsonNode value = node == null ? null : node.get(fieldName);
+        return value == null || value.isNull() ? "" : value.asText("");
     }
 }

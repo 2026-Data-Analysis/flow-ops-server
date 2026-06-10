@@ -172,6 +172,74 @@ class OrchestratorChatResponseNormalizerTest {
     }
 
     @Test
+    void normalizeResolvesContextInventoryIdByMethodAndPath() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/mates/chat");
+        JsonNode context = objectMapper.readTree("""
+                {
+                  "api_inventory": {
+                    "project_id": "3",
+                    "endpoints": [
+                      {"endpoint_id": "2241", "method": "POST", "path": "/mates/chat", "summary": "메이트 채팅"}
+                    ]
+                  },
+                  "inventory_lookup": {
+                    "projectId": 1,
+                    "appId": 3,
+                    "repositoryId": 10,
+                    "branchName": "main",
+                    "keyword": "메이트 채팅"
+                  }
+                }
+                """);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "2241",
+                      "title": "Mate chat succeeds",
+                      "type": "HAPPY_PATH"
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("3", "메이트 채팅", context);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-5"
+        );
+
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiEndpointRepository.findById(2241L)).thenReturn(Optional.empty());
+        when(apiEndpointRepository.findFirstByAppIdAndMethodAndPath(3L, ApiMethod.POST, "/mates/chat"))
+                .thenReturn(Optional.of(endpoint));
+        when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
+            TestGeneration generation = invocation.getArgument(0);
+            ReflectionTestUtils.setField(generation, "id", 89L);
+            return generation;
+        });
+        when(draftRepository.save(any(GeneratedTestCaseDraft.class))).thenAnswer(invocation -> {
+            GeneratedTestCaseDraft draft = invocation.getArgument(0);
+            ReflectionTestUtils.setField(draft, "id", 2002L);
+            return draft;
+        });
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiId").asLong()).isEqualTo(2056L);
+        assertThat(draft.path("selectedEndpoint").path("id").asLong()).isEqualTo(2056L);
+        assertThat(draft.path("selectedEndpoint").path("path").asText()).isEqualTo("/mates/chat");
+    }
+
+    @Test
     void normalizeReturnsOriginalResponseWithoutSavingWhenDraftEndpointCannotBeResolved() throws Exception {
         App app = app(1L);
         JsonNode agentData = objectMapper.readTree("""
@@ -263,10 +331,14 @@ class OrchestratorChatResponseNormalizerTest {
     }
 
     private ApiEndpoint endpoint(Long id, App app) {
+        return endpoint(id, app, "/orders");
+    }
+
+    private ApiEndpoint endpoint(Long id, App app, String path) {
         ApiEndpoint endpoint = ApiEndpoint.builder()
                 .app(app)
                 .method(ApiMethod.POST)
-                .path("/orders")
+                .path(path)
                 .deprecated(false)
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", id);

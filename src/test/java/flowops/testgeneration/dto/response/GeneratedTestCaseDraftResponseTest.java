@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
+import flowops.apiinventory.domain.entity.ApiHttpMethod;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.domain.entity.ApiInventorySource;
+import flowops.apiinventory.domain.entity.ApiInventoryStatus;
 import flowops.app.domain.entity.App;
 import flowops.testgeneration.domain.entity.GeneratedTestCaseDraft;
 import flowops.testgeneration.domain.entity.TestGeneration;
@@ -56,7 +60,23 @@ class GeneratedTestCaseDraftResponseTest {
         assertThat(response.requestSpec()).contains("\"body\":{\"status\":\"PAID\"}");
     }
 
+    @Test
+    void fromUsesEndpointIdEvenWhenDraftHasInventory() {
+        GeneratedTestCaseDraft draft = draft("""
+                {"productId":1,"quantity":2}
+                """, true);
+
+        GeneratedTestCaseDraftResponse response = GeneratedTestCaseDraftResponse.from(draft);
+
+        assertThat(response.apiId()).isEqualTo(2056L);
+        assertThat(response.selectedEndpoint().id()).isEqualTo(2056L);
+    }
+
     private GeneratedTestCaseDraft draft(String requestSpec) {
+        return draft(requestSpec, false);
+    }
+
+    private GeneratedTestCaseDraft draft(String requestSpec, boolean withInventory) {
         App app = App.builder()
                 .name("shop")
                 .build();
@@ -73,6 +93,21 @@ class GeneratedTestCaseDraftResponseTest {
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", 2056L);
 
+        ApiInventory inventory = null;
+        if (withInventory) {
+            inventory = ApiInventory.builder()
+                    .method(ApiHttpMethod.POST)
+                    .endpointPath("/orders")
+                    .operationId("createOrder")
+                    .domainTag("orders")
+                    .sourceType(ApiInventorySource.OPENAPI)
+                    .status(ApiInventoryStatus.ACTIVE)
+                    .authRequired(false)
+                    .responseSchema("{\"expectedStatusCodes\":[201]}")
+                    .build();
+            ReflectionTestUtils.setField(inventory, "id", 2241L);
+        }
+
         TestGeneration generation = TestGeneration.builder()
                 .app(app)
                 .status(TestGenerationStatus.COMPLETED)
@@ -87,6 +122,7 @@ class GeneratedTestCaseDraftResponseTest {
         GeneratedTestCaseDraft draft = GeneratedTestCaseDraft.builder()
                 .generation(generation)
                 .apiEndpoint(endpoint)
+                .apiInventory(inventory)
                 .title("Order creation succeeds")
                 .description("Verifies order creation.")
                 .type("HAPPY_PATH")

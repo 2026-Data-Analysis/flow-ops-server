@@ -24,6 +24,7 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
             select inventory
             from ApiInventory inventory
             where inventory.project.id = :projectId
+              and (:appId is null or inventory.repositoryInfo.app.id = :appId)
               and (:repositoryId is null or inventory.repositoryInfo.id = :repositoryId)
               and (:branchName is null or inventory.branchName = :branchName)
               and (:method is null or inventory.method = :method)
@@ -32,6 +33,7 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
             """)
     List<ApiInventory> findByFilters(
             @Param("projectId") Long projectId,
+            @Param("appId") Long appId,
             @Param("repositoryId") Long repositoryId,
             @Param("branchName") String branchName,
             @Param("method") ApiHttpMethod method,
@@ -42,6 +44,7 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
             select inventory
             from ApiInventory inventory
             where inventory.project.id = :projectId
+              and (:appId is null or inventory.repositoryInfo.app.id = :appId)
               and (:repositoryId is null or inventory.repositoryInfo.id = :repositoryId)
               and (:branchName is null or inventory.branchName = :branchName)
               and (:method is null or inventory.method = :method)
@@ -55,6 +58,7 @@ public interface ApiInventoryRepository extends JpaRepository<ApiInventory, Long
             """)
     List<ApiInventory> findByFiltersAndKeyword(
             @Param("projectId") Long projectId,
+            @Param("appId") Long appId,
             @Param("repositoryId") Long repositoryId,
             @Param("branchName") String branchName,
             @Param("method") ApiHttpMethod method,

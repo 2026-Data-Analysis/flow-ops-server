@@ -77,7 +77,7 @@ public record GeneratedTestCaseDraftResponse(
 
     public static GeneratedTestCaseDraftResponse from(GeneratedTestCaseDraft draft) {
         ResponseMetadata metadata = ResponseMetadataSupport.from(responseSchema(draft), draft.getExpectedSpec());
-        Long apiId = draft.getApiInventory() == null ? draft.getApiEndpoint().getId() : draft.getApiInventory().getId();
+        Long apiId = draft.getApiEndpoint().getId();
         RequestSpecResponse request = RequestSpecResponse.from(draft);
         String executionMethod = request.method();
         String executionEndpoint = request.endpoint();
