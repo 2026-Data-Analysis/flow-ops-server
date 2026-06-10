@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
-import flowops.api.service.ApiEndpointService;
+import flowops.api.repository.ApiEndpointRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.integration.ai.AiAgentContracts.OrchestratorAgentResultPayload;
@@ -37,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class OrchestratorChatResponseNormalizer {
 
     private final AppService appService;
-    private final ApiEndpointService apiEndpointService;
+    private final ApiEndpointRepository apiEndpointRepository;
     private final TestGenerationRepository testGenerationRepository;
     private final TestGenerationApiSelectionRepository selectionRepository;
     private final GeneratedTestCaseDraftRepository draftRepository;
@@ -192,14 +192,12 @@ public class OrchestratorChatResponseNormalizer {
     private ApiEndpoint resolveContextEndpoint(Long appId, JsonNode endpointNode) {
         Long endpointId = parseLongOrNull(firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")));
         if (endpointId != null) {
-            ApiEndpoint endpoint = apiEndpointService.getApiEndpoint(endpointId);
-            if (!Objects.equals(endpoint.getApp().getId(), appId)) {
-                throw new IllegalArgumentException("API endpoint does not belong to the requested app.");
-            }
-            return endpoint;
+            return findEndpointByIdAndAppId(endpointId, appId)
+                    .orElseThrow(() -> new IllegalArgumentException("API endpoint does not belong to the requested app."));
         }
         EndpointTarget target = endpointTarget(endpointNode);
-        return apiEndpointService.findFirstByAppIdAndMethodAndPath(appId, target.method(), target.path());
+        return findEndpointByMethodAndPath(appId, target.method(), target.path())
+                .orElseThrow(() -> new IllegalArgumentException("API endpoint does not belong to the requested app."));
     }
 
     private ApiEndpoint resolveDraftEndpoint(Long appId, JsonNode draft, Map<String, ApiEndpoint> endpoints) {
@@ -226,7 +224,8 @@ public class OrchestratorChatResponseNormalizer {
         if (target == null) {
             throw new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
         }
-        return apiEndpointService.findFirstByAppIdAndMethodAndPath(appId, target.method(), target.path());
+        return findEndpointByMethodAndPath(appId, target.method(), target.path())
+                .orElseThrow(() -> new IllegalArgumentException("Testcase draft does not include a resolvable endpoint."));
     }
 
     private ApiEndpoint resolveByEndpointId(Long appId, JsonNode draft) {
@@ -238,13 +237,17 @@ public class OrchestratorChatResponseNormalizer {
         if (endpointId == null) {
             return null;
         }
-        try {
-            ApiEndpoint endpoint = apiEndpointService.getApiEndpoint(endpointId);
-            return Objects.equals(endpoint.getApp().getId(), appId) ? endpoint : null;
-        } catch (Exception exception) {
-            log.debug("Failed to resolve orchestrator draft endpoint by id {}: {}", endpointId, exception.getMessage());
-            return null;
-        }
+        return findEndpointByIdAndAppId(endpointId, appId).orElse(null);
+    }
+
+    private java.util.Optional<ApiEndpoint> findEndpointByIdAndAppId(Long endpointId, Long appId) {
+        return apiEndpointRepository.findById(endpointId)
+                .filter(endpoint -> endpoint.getApp() != null)
+                .filter(endpoint -> Objects.equals(endpoint.getApp().getId(), appId));
+    }
+
+    private java.util.Optional<ApiEndpoint> findEndpointByMethodAndPath(Long appId, ApiMethod method, String path) {
+        return apiEndpointRepository.findFirstByAppIdAndMethodAndPath(appId, method, path);
     }
 
     private Long firstLong(String... values) {

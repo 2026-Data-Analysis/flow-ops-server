@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
-import flowops.api.service.ApiEndpointService;
+import flowops.api.repository.ApiEndpointRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.integration.ai.AiAgentContracts.OrchestratorAgentResultPayload;
@@ -23,6 +23,7 @@ import flowops.testgeneration.repository.GeneratedTestCaseDraftRepository;
 import flowops.testgeneration.repository.TestGenerationApiSelectionRepository;
 import flowops.testgeneration.repository.TestGenerationRepository;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -38,7 +39,7 @@ class OrchestratorChatResponseNormalizerTest {
     private AppService appService;
 
     @Mock
-    private ApiEndpointService apiEndpointService;
+    private ApiEndpointRepository apiEndpointRepository;
 
     @Mock
     private TestGenerationRepository testGenerationRepository;
@@ -91,7 +92,7 @@ class OrchestratorChatResponseNormalizerTest {
         );
 
         when(appService.getApp(1L)).thenReturn(app);
-        when(apiEndpointService.getApiEndpoint(10L)).thenReturn(endpoint);
+        when(apiEndpointRepository.findById(10L)).thenReturn(Optional.of(endpoint));
         when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
             TestGeneration generation = invocation.getArgument(0);
             ReflectionTestUtils.setField(generation, "id", 77L);
@@ -149,7 +150,7 @@ class OrchestratorChatResponseNormalizerTest {
         );
 
         when(appService.getApp(1L)).thenReturn(app);
-        when(apiEndpointService.getApiEndpoint(1999L)).thenReturn(endpoint);
+        when(apiEndpointRepository.findById(1999L)).thenReturn(Optional.of(endpoint));
         when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
             TestGeneration generation = invocation.getArgument(0);
             ReflectionTestUtils.setField(generation, "id", 88L);
@@ -206,10 +207,46 @@ class OrchestratorChatResponseNormalizerTest {
         verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
     }
 
+    @Test
+    void normalizeReturnsOriginalResponseWithoutSavingWhenNumericApiIdDoesNotExist() throws Exception {
+        App app = app(1L);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "9999",
+                      "title": "Order creation succeeds"
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("1", "주문 생성 테스트 만들어줘", null);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-4"
+        );
+
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiEndpointRepository.findById(9999L)).thenReturn(Optional.empty());
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        assertThat(normalized).isSameAs(response);
+        verify(testGenerationRepository, never()).save(any(TestGeneration.class));
+        verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
+    }
+
     private OrchestratorChatResponseNormalizer service() {
         return new OrchestratorChatResponseNormalizer(
                 appService,
-                apiEndpointService,
+                apiEndpointRepository,
                 testGenerationRepository,
                 selectionRepository,
                 draftRepository,
