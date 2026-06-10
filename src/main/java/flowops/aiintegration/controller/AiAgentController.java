@@ -1,6 +1,7 @@
 package flowops.aiintegration.controller;
 
 import flowops.aiintegration.client.AiClient;
+import flowops.aiintegration.service.OrchestratorChatResponseNormalizer;
 import flowops.global.response.ApiResponse;
 import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AiAgentController {
 
     private final AiClient aiClient;
+    private final OrchestratorChatResponseNormalizer orchestratorChatResponseNormalizer;
 
     @PostMapping("/test-cases/generate")
     @Operation(summary = "테스트 케이스 초안 생성", description = "선택한 API와 기존 테스트 정보를 바탕으로 AI 테스트 케이스 초안을 생성합니다.")
@@ -80,7 +82,8 @@ public class AiAgentController {
     public ApiResponse<OrchestratorChatResponse> chatWithOrchestrator(
             @Valid @RequestBody OrchestratorChatRequest request
     ) {
-        return ApiResponse.success(aiClient.chatWithOrchestrator(request));
+        OrchestratorChatResponse response = aiClient.chatWithOrchestrator(request);
+        return ApiResponse.success(orchestratorChatResponseNormalizer.normalize(request, response));
     }
 
     @PostMapping("/incidents/analyze")
