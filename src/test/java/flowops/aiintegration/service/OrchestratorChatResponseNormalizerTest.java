@@ -2,6 +2,8 @@ package flowops.aiintegration.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -166,6 +168,42 @@ class OrchestratorChatResponseNormalizerTest {
         assertThat(draft.path("selectedEndpoint").path("method").asText()).isEqualTo("POST");
         assertThat(draft.path("selectedEndpoint").path("path").asText()).isEqualTo("/orders");
         assertThat(draft.path("endpointName").asText()).isEqualTo("POST /orders");
+    }
+
+    @Test
+    void normalizeReturnsOriginalResponseWithoutSavingWhenDraftEndpointCannotBeResolved() throws Exception {
+        App app = app(1L);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "api-order-001",
+                      "title": "Order creation succeeds",
+                      "requestSpec": {"method": "POST", "body": {"productId": 1}}
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("1", "주문 생성 테스트 만들어줘", null);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-3"
+        );
+
+        when(appService.getApp(1L)).thenReturn(app);
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        assertThat(normalized).isSameAs(response);
+        verify(testGenerationRepository, never()).save(any(TestGeneration.class));
+        verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
     }
 
     private OrchestratorChatResponseNormalizer service() {

@@ -104,6 +104,14 @@ public class OrchestratorChatResponseNormalizer {
             JsonNode data,
             Map<String, ApiEndpoint> endpoints
     ) {
+        List<ResolvedDraft> resolvedDrafts = new ArrayList<>();
+        Map<Long, ApiEndpoint> selectedEndpoints = new LinkedHashMap<>();
+        for (JsonNode draft : data.path("drafts")) {
+            ApiEndpoint endpoint = resolveDraftEndpoint(app.getId(), draft, endpoints);
+            selectedEndpoints.putIfAbsent(endpoint.getId(), endpoint);
+            resolvedDrafts.add(new ResolvedDraft(draft, endpoint));
+        }
+
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
                 .app(app)
                 .environment(null)
@@ -117,10 +125,9 @@ public class OrchestratorChatResponseNormalizer {
                 .build());
 
         List<GeneratedTestCaseDraft> savedDrafts = new ArrayList<>();
-        Map<Long, ApiEndpoint> selectedEndpoints = new LinkedHashMap<>();
-        for (JsonNode draft : data.path("drafts")) {
-            ApiEndpoint endpoint = resolveDraftEndpoint(app.getId(), draft, endpoints);
-            selectedEndpoints.putIfAbsent(endpoint.getId(), endpoint);
+        for (ResolvedDraft resolvedDraft : resolvedDrafts) {
+            JsonNode draft = resolvedDraft.draft();
+            ApiEndpoint endpoint = resolvedDraft.endpoint();
             // 에이전트가 내려준 draft별 type/risk_level 원본 로그 (테스트 레벨 매핑 검증용)
             log.info("[Orchestrator testcase draft] title='{}' type='{}' risk_level(raw from agent)='{}'",
                     text(draft, "title"), text(draft, "type"),
@@ -382,5 +389,8 @@ public class OrchestratorChatResponseNormalizer {
     }
 
     private record EndpointTarget(ApiMethod method, String path) {
+    }
+
+    private record ResolvedDraft(JsonNode draft, ApiEndpoint endpoint) {
     }
 }
