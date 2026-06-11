@@ -24,6 +24,18 @@ public record ScenarioRecommendationResponse(
             String endpointId,
             @Schema(description = "Step label", example = "Request payment approval")
             String label,
+            @Schema(description = "Step draft type", example = "HAPPY_PATH")
+            String type,
+            @Schema(description = "Step description")
+            String description,
+            @Schema(description = "Test level inherited from the scenario", example = "REGRESSION")
+            String testLevel,
+            @Schema(description = "User role context")
+            String userRole,
+            @Schema(description = "Precondition state")
+            String stateCondition,
+            @Schema(description = "Data variant")
+            String dataVariant,
             @Schema(description = "Request config JSON")
             String requestConfig,
             @Schema(description = "Extraction rules JSON")

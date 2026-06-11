@@ -590,12 +590,22 @@ public class OrchestratorService {
             long appId = Long.parseLong(projectId.trim());
             return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId).stream()
                     .map(scenario -> {
-                        List<Long> stepApiIds = scenarioStepRepository
+                        // step_api_ids는 api_inventory[].endpoint_id(method:path)와 동일한 문자열이어야
+                        // AI 서버에서 dedup 매칭이 된다. 숫자 DB id가 아니라 endpoint_id 문자열로 통일한다.
+                        List<String> stepApiIds = scenarioStepRepository
                                 .findByScenarioIdOrderByStepOrderAsc(scenario.getId())
                                 .stream()
-                                .map(step -> step.getApiInventory() != null
-                                        ? step.getApiInventory().getId()
-                                        : step.getApiEndpoint() != null ? step.getApiEndpoint().getId() : null)
+                                .map(step -> {
+                                    if (step.getApiInventory() != null) {
+                                        return step.getApiInventory().getMethod().name() + ":"
+                                                + step.getApiInventory().getEndpointPath();
+                                    }
+                                    if (step.getApiEndpoint() != null) {
+                                        return step.getApiEndpoint().getMethod().name() + ":"
+                                                + step.getApiEndpoint().getPath();
+                                    }
+                                    return null;
+                                })
                                 .filter(Objects::nonNull)
                                 .toList();
                         return new ExistingScenarioSummary(scenario.getName(), stepApiIds);

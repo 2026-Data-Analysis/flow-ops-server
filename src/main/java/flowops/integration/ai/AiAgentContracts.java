@@ -196,7 +196,7 @@ public final class AiAgentContracts {
     public record ExistingScenarioSummary(
             String name,
             @JsonProperty("step_api_ids")
-            List<Long> step_api_ids
+            List<String> step_api_ids
     ) {
     }
 
@@ -257,10 +257,10 @@ public final class AiAgentContracts {
     }
 
     public record ScenarioExistingTestCasePayload(
-            @JsonProperty("test_case_id")
-            String test_case_id,
-            @JsonProperty("endpoint_id")
-            String endpoint_id,
+            @JsonProperty("testCaseId")
+            String testCaseId,
+            @JsonProperty("apiId")
+            String apiId,
             String name,
             String type,
             String description,
@@ -303,6 +303,8 @@ public final class AiAgentContracts {
             String name,
             String description,
             String type,
+            @JsonProperty("test_level")
+            String test_level,
             List<ScenarioStepPayload> steps,
             MetaPayload meta
     ) {
@@ -313,6 +315,8 @@ public final class AiAgentContracts {
             String rationale,
             @JsonProperty("coverage_gap")
             String coverage_gap,
+            @JsonProperty("test_level")
+            String test_level,
             @JsonProperty("estimated_risk")
             String estimated_risk
     ) {

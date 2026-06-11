@@ -561,12 +561,22 @@ public class ScenarioService {
     private List<ExistingScenarioSummary> existingScenarios(Long appId) {
         return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId).stream()
                 .map(scenario -> {
-                    List<Long> stepApiIds = scenarioStepRepository
+                    // step_api_ids는 api_inventory[].endpoint_id(method:path)와 동일한 문자열이어야
+                    // AI 서버에서 dedup 매칭이 된다. 숫자 DB id가 아니라 endpoint_id 문자열로 통일한다.
+                    List<String> stepApiIds = scenarioStepRepository
                             .findByScenarioIdOrderByStepOrderAsc(scenario.getId())
                             .stream()
-                            .map(step -> step.getApiInventory() != null
-                                    ? step.getApiInventory().getId()
-                                    : step.getApiEndpoint() != null ? step.getApiEndpoint().getId() : null)
+                            .map(step -> {
+                                if (step.getApiInventory() != null) {
+                                    return endpointId(step.getApiInventory().getMethod().name(),
+                                            step.getApiInventory().getEndpointPath());
+                                }
+                                if (step.getApiEndpoint() != null) {
+                                    return endpointId(step.getApiEndpoint().getMethod().name(),
+                                            step.getApiEndpoint().getPath());
+                                }
+                                return null;
+                            })
                             .filter(Objects::nonNull)
                             .toList();
                     return new ExistingScenarioSummary(scenario.getName(), stepApiIds);
@@ -628,25 +638,36 @@ public class ScenarioService {
         String reason = scenario.meta() == null || scenario.meta().rationale() == null
                 ? scenario.description()
                 : scenario.meta().rationale();
+        // 시나리오 단위 test_level은 Scenario.test_level 우선, 없으면 meta.test_level을 사용한다(스펙상 동일 값).
+        String scenarioTestLevel = scenario.test_level() != null
+                ? scenario.test_level()
+                : scenario.meta() == null ? null : scenario.meta().test_level();
         return new ScenarioRecommendationResponse(
                 scenario.name(),
                 fallbackType == null ? ScenarioType.HAPPY_PATH : fallbackType,
                 reason,
                 scenario.steps() == null ? List.of() : scenario.steps().stream()
-                        .map(step -> toRecommendationStep(step, apiIdByEndpointId))
+                        .map(step -> toRecommendationStep(step, apiIdByEndpointId, scenarioTestLevel))
                         .toList()
         );
     }
 
     private ScenarioRecommendationResponse.Step toRecommendationStep(
             ScenarioStepPayload step,
-            Map<String, Long> apiIdByEndpointId
+            Map<String, Long> apiIdByEndpointId,
+            String scenarioTestLevel
     ) {
         return new ScenarioRecommendationResponse.Step(
                 step.order(),
                 apiIdByEndpointId.get(step.apiId()),
                 step.apiId(),
                 stepLabel(step),
+                step.type(),
+                step.description(),
+                scenarioTestLevel,
+                step.userRole(),
+                step.stateCondition(),
+                step.dataVariant(),
                 requestConfig(step),
                 jsonString(step.chained_variables()),
                 validationRules(step)
