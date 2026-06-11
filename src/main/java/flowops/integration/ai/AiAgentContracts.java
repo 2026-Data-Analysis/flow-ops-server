@@ -336,6 +336,8 @@ public final class AiAgentContracts {
             String title,
             String description,
             String type,
+            @JsonProperty("test_level")
+            String test_level,
             String userRole,
             String stateCondition,
             String dataVariant,

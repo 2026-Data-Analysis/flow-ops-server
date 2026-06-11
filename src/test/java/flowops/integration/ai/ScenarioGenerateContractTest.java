@@ -151,6 +151,7 @@ class ScenarioGenerateContractTest {
                             "apiId": "POST:/orders",
                             "order": 1,
                             "title": "Create order",
+                            "test_level": "SANITY",
                             "requestSpec": {"method": "POST", "body": {"itemId": "item-123"}},
                             "expectedSpec": {"statusCode": 201},
                             "assertionSpec": {"bodyContains": ["orderId"]},
@@ -168,6 +169,7 @@ class ScenarioGenerateContractTest {
         assertThat(response.requestId()).isEqualTo("req-001");
         assertThat(response.data().scenarios()).hasSize(1);
         assertThat(response.data().scenarios().get(0).steps().get(0).title()).isEqualTo("Create order");
+        assertThat(response.data().scenarios().get(0).steps().get(0).test_level()).isEqualTo("SANITY");
         assertThat(response.data().scenarios().get(0).steps().get(0).requestSpec().get("body").get("itemId").asText())
                 .isEqualTo("item-123");
         assertThat(response.data().scenarios().get(0).steps().get(0).assertionSpec().get("bodyContains").get(0).asText())

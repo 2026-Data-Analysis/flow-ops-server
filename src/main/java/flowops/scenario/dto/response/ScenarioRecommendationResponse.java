@@ -11,6 +11,10 @@ public record ScenarioRecommendationResponse(
         ScenarioType type,
         @Schema(description = "Recommendation reason", example = "Covers a high-value multi-endpoint business path.")
         String recommendationReason,
+        @Schema(description = "Scenario test level", example = "SANITY")
+        String testLevel,
+        @Schema(description = "Representative scenario risk estimated by AI", example = "HIGH")
+        String estimatedRisk,
         @Schema(description = "AI-recommended scenario steps")
         List<Step> steps
 ) {
@@ -28,7 +32,7 @@ public record ScenarioRecommendationResponse(
             String type,
             @Schema(description = "Step description")
             String description,
-            @Schema(description = "Test level inherited from the scenario", example = "REGRESSION")
+            @Schema(description = "Step test level from AI, falling back to the scenario test level", example = "REGRESSION")
             String testLevel,
             @Schema(description = "User role context")
             String userRole,

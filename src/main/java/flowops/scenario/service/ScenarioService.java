@@ -298,9 +298,9 @@ public class ScenarioService {
 
     private List<ScenarioRecommendationResponse> mockRecommendations() {
         return List.of(
-                new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path.", List.of()),
-                new ScenarioRecommendationResponse("Validation guard rails", ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures.", List.of()),
-                new ScenarioRecommendationResponse("Recovery after dependency failure", ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.", List.of())
+                new ScenarioRecommendationResponse("Critical checkout flow", ScenarioType.HAPPY_PATH, "Covers a high-value multi-endpoint business path.", "REGRESSION", "HIGH", List.of()),
+                new ScenarioRecommendationResponse("Validation guard rails", ScenarioType.EDGE_CASE, "Focuses on required-field and malformed-input failures.", "REGRESSION", "MEDIUM", List.of()),
+                new ScenarioRecommendationResponse("Recovery after dependency failure", ScenarioType.FAILURE_RECOVERY, "Models retry and fallback behavior after an upstream error.", "REGRESSION", "HIGH", List.of())
         );
     }
 
@@ -644,10 +644,13 @@ public class ScenarioService {
         String scenarioTestLevel = scenario.test_level() != null
                 ? scenario.test_level()
                 : scenario.meta() == null ? null : scenario.meta().test_level();
+        String estimatedRisk = scenario.meta() == null ? null : scenario.meta().estimated_risk();
         return new ScenarioRecommendationResponse(
                 scenario.name(),
                 fallbackType == null ? ScenarioType.HAPPY_PATH : fallbackType,
                 reason,
+                scenarioTestLevel,
+                estimatedRisk,
                 scenario.steps() == null ? List.of() : scenario.steps().stream()
                         .map(step -> toRecommendationStep(step, apiIdByEndpointId, scenarioTestLevel))
                         .toList()
@@ -666,7 +669,7 @@ public class ScenarioService {
                 stepLabel(step),
                 step.type(),
                 step.description(),
-                scenarioTestLevel,
+                defaultIfBlank(step.test_level(), scenarioTestLevel),
                 step.userRole(),
                 step.stateCondition(),
                 step.dataVariant(),
