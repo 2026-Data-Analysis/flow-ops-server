@@ -3,6 +3,7 @@ package flowops.scenario.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,9 +48,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class ScenarioServiceTest {
 
     @Mock
@@ -180,6 +183,49 @@ class ScenarioServiceTest {
     }
 
     @Test
+    void recommendBuildsRequestWithThreeMethodPathEndpointIdsAndEmptyExistingScenarios() {
+        App app = app(1L);
+        ApiEndpoint login = endpoint(2249L, app, ApiMethod.POST, "/api/v1/auth/login");
+        ApiEndpoint profile = endpoint(2248L, app, ApiMethod.GET, "/api/v1/users/me");
+        ApiEndpoint update = endpoint(2247L, app, ApiMethod.PATCH, "/api/v1/users/me");
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of(login, profile, update));
+        when(environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(1L)).thenReturn(Optional.empty());
+        when(testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(scenarioRepository.findByAppIdOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class))).thenReturn(successResponse());
+
+        scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        ));
+
+        ArgumentCaptor<ScenarioGenerateRequest> captor = ArgumentCaptor.forClass(ScenarioGenerateRequest.class);
+        verify(aiClient).buildScenario(captor.capture());
+        ScenarioGenerateRequest request = captor.getValue();
+        assertThat(request.mode()).isEqualTo("RECOMMEND");
+        assertThat(request.user_intent()).isNull();
+        assertThat(request.api_inventory().endpoints())
+                .extracting(endpoint -> endpoint.endpoint_id())
+                .containsExactly(
+                        "POST:/api/v1/auth/login",
+                        "GET:/api/v1/users/me",
+                        "PATCH:/api/v1/users/me"
+                );
+        assertThat(request.existing_scenarios()).isEmpty();
+    }
+
+    @Test
     void recommendRejectsEmptyApiInventoryBeforeCallingAi() {
         App app = app(1L);
         when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
@@ -201,10 +247,11 @@ class ScenarioServiceTest {
         )))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("api_inventory.endpoints");
+        verify(aiClient, never()).buildScenario(any());
     }
 
     @Test
-    void recommendTreatsAiSuccessFalseAsExternalServiceError() {
+    void recommendTreatsNoScenariosGeneratedAsEmptyRecommendation(CapturedOutput output) {
         App app = app(1L);
         ApiEndpoint endpoint = endpoint(101L, app);
         when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
@@ -224,6 +271,101 @@ class ScenarioServiceTest {
                 "trace-123"
         ));
 
+        assertThat(scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        )))
+                .isEmpty();
+        assertThat(output.getOut())
+                .contains("recommend failure diagnostic")
+                .contains("NO_SCENARIOS_GENERATED")
+                .contains("trace-123");
+    }
+
+    @Test
+    void recommendLogsDedupDiagnosticsWhenExistingScenariosMayRemoveCandidates(CapturedOutput output) {
+        App app = app(1L);
+        ApiEndpoint login = endpoint(2249L, app, ApiMethod.POST, "/api/v1/auth/login");
+        ApiEndpoint profile = endpoint(2248L, app, ApiMethod.GET, "/api/v1/users/me");
+        Scenario existing = scenario(301L, app, "Existing auth flow");
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of(login, profile));
+        when(environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(1L)).thenReturn(Optional.empty());
+        when(testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(scenarioRepository.findByAppIdOrderByUpdatedAtDesc(1L)).thenReturn(List.of(existing));
+        when(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(301L))
+                .thenReturn(List.of(
+                        scenarioStep(existing, login, 1, "Login"),
+                        scenarioStep(existing, profile, 2, "Read profile")
+                ));
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class))).thenReturn(new ScenarioGenerateResponse(
+                null,
+                null,
+                false,
+                null,
+                "NO_SCENARIOS_GENERATED",
+                "Dedup removed every candidate",
+                "trace-dedup"
+        ));
+
+        assertThat(scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        )))
+                .isEmpty();
+
+        ArgumentCaptor<ScenarioGenerateRequest> captor = ArgumentCaptor.forClass(ScenarioGenerateRequest.class);
+        verify(aiClient).buildScenario(captor.capture());
+        assertThat(captor.getValue().existing_scenarios()).hasSize(1);
+        assertThat(captor.getValue().existing_scenarios().get(0).step_api_ids())
+                .containsExactly("POST:/api/v1/auth/login", "GET:/api/v1/users/me");
+        assertThat(output.getOut())
+                .contains("dedup check")
+                .contains("existingScenarioCount=1")
+                .contains("sampleExistingScenarioStepApiIds")
+                .contains("POST:/api/v1/auth/login")
+                .contains("trace-dedup");
+    }
+
+    @Test
+    void recommendKeepsLlmCallFailedAsExternalServiceError() {
+        App app = app(1L);
+        ApiEndpoint endpoint = endpoint(101L, app);
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of(endpoint));
+        when(environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(1L)).thenReturn(Optional.empty());
+        when(testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(scenarioRepository.findByAppIdOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class))).thenReturn(new ScenarioGenerateResponse(
+                null,
+                null,
+                false,
+                null,
+                "LLM_CALL_FAILED",
+                "Model call failed",
+                "trace-llm"
+        ));
+
         assertThatThrownBy(() -> scenarioService.recommend(new RecommendScenarioRequest(
                 1L,
                 null,
@@ -237,8 +379,8 @@ class ScenarioServiceTest {
                 null
         )))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("NO_SCENARIOS_GENERATED")
-                .hasMessageContaining("trace-123");
+                .hasMessageContaining("LLM_CALL_FAILED")
+                .hasMessageContaining("trace-llm");
     }
 
     private App app(Long id) {
@@ -260,14 +402,40 @@ class ScenarioServiceTest {
     }
 
     private ApiEndpoint endpoint(Long id, App app) {
+        return endpoint(id, app, ApiMethod.POST, "/orders");
+    }
+
+    private ApiEndpoint endpoint(Long id, App app, ApiMethod method, String path) {
         ApiEndpoint endpoint = ApiEndpoint.builder()
                 .app(app)
-                .method(ApiMethod.POST)
-                .path("/orders")
+                .method(method)
+                .path(path)
                 .deprecated(false)
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", id);
         return endpoint;
+    }
+
+    private Scenario scenario(Long id, App app, String name) {
+        Scenario scenario = Scenario.builder()
+                .app(app)
+                .name(name)
+                .type(ScenarioType.HAPPY_PATH)
+                .source(ScenarioSource.AI)
+                .build();
+        ReflectionTestUtils.setField(scenario, "id", id);
+        return scenario;
+    }
+
+    private ScenarioStep scenarioStep(Scenario scenario, ApiEndpoint endpoint, int order, String label) {
+        ScenarioStep step = ScenarioStep.builder()
+                .scenario(scenario)
+                .apiEndpoint(endpoint)
+                .stepOrder(order)
+                .label(label)
+                .build();
+        ReflectionTestUtils.setField(step, "id", 400L + order);
+        return step;
     }
 
     private TestCase testCase(Long id, App app, ApiEndpoint endpoint) {

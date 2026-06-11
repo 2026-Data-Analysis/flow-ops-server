@@ -228,13 +228,19 @@ public class ScenarioService {
                 request.requestedBy(),
                 externalServiceProperties.ai().mockEnabled());
 
-        ScenarioGenerateResponse response = aiClient.buildScenario(buildScenarioGenerateRequest(
+        ScenarioGenerateRequest aiRequest = buildScenarioGenerateRequest(
                 request,
                 app,
                 projectId,
                 aiEndpoints
-        ));
-        validateScenarioGenerateResponse(response, app.getId());
+        );
+        logScenarioGenerateRequest(aiRequest);
+        ScenarioGenerateResponse response = aiClient.buildScenario(aiRequest);
+        if (isNoScenariosGenerated(response)) {
+            logScenarioFailureDiagnostic(aiRequest, response);
+            return List.of();
+        }
+        validateScenarioGenerateResponse(response, app.getId(), aiRequest);
 
         List<ScenarioPayload> scenarios = scenarios(response);
         if (response == null || scenarios.isEmpty()) {
@@ -291,13 +297,19 @@ public class ScenarioService {
         validateScenarioEndpoints(app.getId(), aiEndpoints);
         String projectId = projectId(app, inventories);
 
-        ScenarioGenerateResponse response = aiClient.buildScenario(buildScenarioGenerateRequest(
+        ScenarioGenerateRequest aiRequest = buildScenarioGenerateRequest(
                 request,
                 app,
                 projectId,
                 aiEndpoints
-        ));
-        validateScenarioGenerateResponse(response, app.getId());
+        );
+        logScenarioGenerateRequest(aiRequest);
+        ScenarioGenerateResponse response = aiClient.buildScenario(aiRequest);
+        if (isNoScenariosGenerated(response)) {
+            logScenarioFailureDiagnostic(aiRequest, response);
+            return response;
+        }
+        validateScenarioGenerateResponse(response, app.getId(), aiRequest);
         return response;
     }
 
@@ -308,19 +320,126 @@ public class ScenarioService {
         }
     }
 
-    private void validateScenarioGenerateResponse(ScenarioGenerateResponse response, Long appId) {
+    private void validateScenarioGenerateResponse(ScenarioGenerateResponse response, Long appId, ScenarioGenerateRequest request) {
         if (response != null && Boolean.FALSE.equals(response.success())) {
             log.warn("AI scenario generator returned failure. appId={}, errorCode={}, errorMessage={}, traceId={}",
                     appId,
                     response.error_code(),
                     response.error_message(),
                     response.trace_id());
+            logScenarioFailureDiagnostic(request, response);
             throw new ApiException(
                     ErrorCode.EXTERNAL_SERVICE_ERROR,
                     "AI scenario generator failed. error_code=%s, error_message=%s, trace_id=%s"
                             .formatted(response.error_code(), response.error_message(), response.trace_id())
             );
         }
+    }
+
+    private boolean isNoScenariosGenerated(ScenarioGenerateResponse response) {
+        return response != null
+                && Boolean.FALSE.equals(response.success())
+                && "NO_SCENARIOS_GENERATED".equals(response.error_code());
+    }
+
+    private void logScenarioGenerateRequest(ScenarioGenerateRequest request) {
+        if (!log.isDebugEnabled() || request == null) {
+            return;
+        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("project_id", request.project_id());
+        fields.put("mode", request.mode());
+        fields.put("user_intent", request.user_intent());
+        fields.put("api_inventory_project_id", request.api_inventory() == null ? null : request.api_inventory().project_id());
+        fields.put("endpoint_count", endpointCount(request));
+        fields.put("sample_endpoints", sampleEndpointDiagnostics(request));
+        fields.put("existing_test_cases_count", request.existing_test_cases() == null ? 0 : request.existing_test_cases().size());
+        fields.put("existing_scenarios_count", request.existing_scenarios() == null ? 0 : request.existing_scenarios().size());
+        fields.put("sample_existing_scenarios", sampleExistingScenarioDiagnostics(request));
+        log.debug("AI scenario generator request body summary: {}", fields);
+    }
+
+    private void logScenarioFailureDiagnostic(ScenarioGenerateRequest request, ScenarioGenerateResponse response) {
+        log.warn("recommend failure diagnostic (dedup check): mode={} endpointCount={} existingScenarioCount={} existingTestCaseCount={} sampleEndpointIds={} sampleExistingScenarioStepApiIds={} errorCode={} errorMessage={} traceId={}",
+                request == null ? null : request.mode(),
+                endpointCount(request),
+                request == null || request.existing_scenarios() == null ? 0 : request.existing_scenarios().size(),
+                request == null || request.existing_test_cases() == null ? 0 : request.existing_test_cases().size(),
+                sampleEndpointIds(request),
+                sampleExistingScenarioStepApiIds(request),
+                response == null ? null : response.error_code(),
+                response == null ? null : response.error_message(),
+                response == null ? null : response.trace_id());
+    }
+
+    private int endpointCount(ScenarioGenerateRequest request) {
+        return request == null || request.api_inventory() == null || request.api_inventory().endpoints() == null
+                ? 0
+                : request.api_inventory().endpoints().size();
+    }
+
+    private List<String> sampleEndpointIds(ScenarioGenerateRequest request) {
+        if (request == null || request.api_inventory() == null || request.api_inventory().endpoints() == null) {
+            return List.of();
+        }
+        return request.api_inventory().endpoints().stream()
+                .limit(3)
+                .map(ScenarioEndpointPayload::endpoint_id)
+                .toList();
+    }
+
+    private List<List<String>> sampleExistingScenarioStepApiIds(ScenarioGenerateRequest request) {
+        if (request == null || request.existing_scenarios() == null) {
+            return List.of();
+        }
+        return request.existing_scenarios().stream()
+                .limit(3)
+                .map(ExistingScenarioSummary::step_api_ids)
+                .toList();
+    }
+
+    private List<Map<String, Object>> sampleEndpointDiagnostics(ScenarioGenerateRequest request) {
+        if (request == null || request.api_inventory() == null || request.api_inventory().endpoints() == null) {
+            return List.of();
+        }
+        return request.api_inventory().endpoints().stream()
+                .limit(3)
+                .map(endpoint -> {
+                    Map<String, Object> fields = new LinkedHashMap<>();
+                    fields.put("endpoint_id", endpoint.endpoint_id());
+                    fields.put("path", endpoint.path());
+                    fields.put("method", endpoint.method());
+                    fields.put("summary", endpoint.summary());
+                    fields.put("has_request_body_schema", hasJsonValue(endpoint.request_body_schema()));
+                    fields.put("has_response_schema", hasJsonValue(endpoint.response_schema()));
+                    fields.put("auth", endpoint.auth());
+                    fields.put("tags", endpoint.tags());
+                    return fields;
+                })
+                .toList();
+    }
+
+    private List<Map<String, Object>> sampleExistingScenarioDiagnostics(ScenarioGenerateRequest request) {
+        if (request == null || request.existing_scenarios() == null) {
+            return List.of();
+        }
+        return request.existing_scenarios().stream()
+                .limit(3)
+                .map(scenario -> {
+                    Map<String, Object> fields = new LinkedHashMap<>();
+                    fields.put("name", scenario.name());
+                    fields.put("step_api_ids", scenario.step_api_ids());
+                    return fields;
+                })
+                .toList();
+    }
+
+    private boolean hasJsonValue(JsonNode value) {
+        return value != null
+                && !value.isNull()
+                && !value.isMissingNode()
+                && !(value.isObject() && value.isEmpty())
+                && !(value.isArray() && value.isEmpty());
     }
 
     private List<ScenarioRecommendationResponse> mockRecommendations() {
