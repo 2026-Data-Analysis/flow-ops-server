@@ -104,7 +104,7 @@ class ScenarioGenerateContractTest {
                         "101",
                         "POST:/orders",
                         "Existing order creation",
-                        "HAPPY_PATH",
+                        "FAILURE_HANDLING",
                         "Existing saved order creation test",
                         "REGRESSION",
                         objectMapper.readTree("{\"method\":\"POST\"}"),
@@ -125,6 +125,9 @@ class ScenarioGenerateContractTest {
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
         assertThat(json.get("existing_test_cases").get(0).get("test_case_id").asText()).isEqualTo("101");
         assertThat(json.get("existing_test_cases").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
+        assertThat(json.get("existing_test_cases").get(0).get("type").asText()).isEqualTo("FAILURE_HANDLING");
+        assertThat(json.get("existing_test_cases").get(0).get("risk_level").asText()).isEqualTo("REGRESSION");
+        assertThat(json.get("existing_test_cases").get(0).has("testLevel")).isFalse();
         assertThat(json.get("existing_test_cases").get(0).get("expected_status_code").asInt()).isEqualTo(201);
         assertThat(json.get("max_scenarios").asInt()).isEqualTo(3);
         assertThat(json.has("max_steps_per_scenario")).isFalse();

@@ -264,6 +264,7 @@ public final class AiAgentContracts {
             String name,
             String type,
             String description,
+            @JsonProperty("risk_level")
             String testLevel,
             JsonNode requestSpec,
             JsonNode expectedSpec,
