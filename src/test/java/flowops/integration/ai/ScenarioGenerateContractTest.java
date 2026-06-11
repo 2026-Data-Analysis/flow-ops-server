@@ -123,8 +123,8 @@ class ScenarioGenerateContractTest {
         assertThat(json.get("mode").asText()).isEqualTo("RECOMMEND");
         assertThat(json.has("user_intent")).isFalse();
         assertThat(json.get("api_inventory").get("endpoints").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
-        assertThat(json.get("existing_test_cases").get(0).get("test_case_id").asText()).isEqualTo("101");
-        assertThat(json.get("existing_test_cases").get(0).get("endpoint_id").asText()).isEqualTo("POST:/orders");
+        assertThat(json.get("existing_test_cases").get(0).get("testCaseId").asText()).isEqualTo("101");
+        assertThat(json.get("existing_test_cases").get(0).get("apiId").asText()).isEqualTo("POST:/orders");
         assertThat(json.get("existing_test_cases").get(0).get("type").asText()).isEqualTo("FAILURE_HANDLING");
         assertThat(json.get("existing_test_cases").get(0).get("risk_level").asText()).isEqualTo("REGRESSION");
         assertThat(json.get("existing_test_cases").get(0).has("testLevel")).isFalse();

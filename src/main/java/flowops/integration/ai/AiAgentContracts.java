@@ -196,7 +196,7 @@ public final class AiAgentContracts {
     public record ExistingScenarioSummary(
             String name,
             @JsonProperty("step_api_ids")
-            List<Long> step_api_ids
+            List<String> step_api_ids
     ) {
     }
 
@@ -257,10 +257,10 @@ public final class AiAgentContracts {
     }
 
     public record ScenarioExistingTestCasePayload(
-            @JsonProperty("test_case_id")
-            String test_case_id,
-            @JsonProperty("endpoint_id")
-            String endpoint_id,
+            @JsonProperty("testCaseId")
+            String testCaseId,
+            @JsonProperty("apiId")
+            String apiId,
             String name,
             String type,
             String description,
