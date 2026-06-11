@@ -1,7 +1,9 @@
 package flowops.scenario.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,20 +19,31 @@ import flowops.environment.domain.entity.Environment;
 import flowops.environment.repository.EnvironmentRepository;
 import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.global.config.ExternalServiceProperties;
+import flowops.global.exception.ApiException;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateDataPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.domain.entity.ScenarioSource;
 import flowops.scenario.domain.entity.ScenarioType;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.dto.request.CreateScenarioRequest;
+import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ScenarioStepRequest;
 import flowops.scenario.dto.response.ScenarioDetailResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
+import flowops.testcase.domain.entity.TestCase;
+import flowops.testcase.domain.entity.TestCaseSource;
+import flowops.testcase.domain.entity.TestCaseType;
+import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -65,9 +78,13 @@ class ScenarioServiceTest {
     @InjectMocks
     private ScenarioService scenarioService;
 
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(scenarioService, "objectMapper", new ObjectMapper().findAndRegisterModules());
+    }
+
     @Test
     void createPersistsEnvironmentFromRequest() {
-        ReflectionTestUtils.setField(scenarioService, "objectMapper", new ObjectMapper().findAndRegisterModules());
         App app = app(1L);
         Environment environment = environment(3L, app);
         ApiEndpoint endpoint = endpoint(101L, app);
@@ -121,6 +138,109 @@ class ScenarioServiceTest {
         assertThat(response.steps()).hasSize(1);
     }
 
+    @Test
+    void recommendBuildsRecommendRequestWithoutUserIntentAndWithExistingCoverageContext() {
+        App app = app(1L);
+        ApiEndpoint endpoint = endpoint(101L, app);
+        TestCase testCase = testCase(201L, app, endpoint);
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of(endpoint));
+        when(environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(1L)).thenReturn(Optional.empty());
+        when(testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(1L)).thenReturn(List.of(testCase));
+        when(scenarioRepository.findByAppIdOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class))).thenReturn(successResponse());
+
+        scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        ));
+
+        ArgumentCaptor<ScenarioGenerateRequest> captor = ArgumentCaptor.forClass(ScenarioGenerateRequest.class);
+        verify(aiClient).buildScenario(captor.capture());
+        ScenarioGenerateRequest request = captor.getValue();
+        assertThat(request.mode()).isEqualTo("RECOMMEND");
+        assertThat(request.user_intent()).isNull();
+        assertThat(request.api_inventory().endpoints()).hasSize(1);
+        assertThat(request.api_inventory().endpoints().get(0).endpoint_id()).isEqualTo("POST:/orders");
+        assertThat(request.existing_test_cases()).hasSize(1);
+        assertThat(request.existing_test_cases().get(0).apiId()).isEqualTo("POST:/orders");
+        assertThat(request.existing_scenarios()).isEmpty();
+        assertThat(request.max_scenarios()).isEqualTo(3);
+        assertThat(request.max_steps_per_scenario()).isNull();
+    }
+
+    @Test
+    void recommendRejectsEmptyApiInventoryBeforeCallingAi() {
+        App app = app(1L);
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        )))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("api_inventory.endpoints");
+    }
+
+    @Test
+    void recommendTreatsAiSuccessFalseAsExternalServiceError() {
+        App app = app(1L);
+        ApiEndpoint endpoint = endpoint(101L, app);
+        when(externalServiceProperties.ai()).thenReturn(aiProperties(false));
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(1L)).thenReturn(List.of());
+        when(apiEndpointRepository.findByAppId(1L)).thenReturn(List.of(endpoint));
+        when(environmentRepository.findFirstByAppIdOrderByCreatedAtAsc(1L)).thenReturn(Optional.empty());
+        when(testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(scenarioRepository.findByAppIdOrderByUpdatedAtDesc(1L)).thenReturn(List.of());
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class))).thenReturn(new ScenarioGenerateResponse(
+                null,
+                null,
+                false,
+                null,
+                "NO_SCENARIOS_GENERATED",
+                "No recommendable scenario found",
+                "trace-123"
+        ));
+
+        assertThatThrownBy(() -> scenarioService.recommend(new RecommendScenarioRequest(
+                1L,
+                null,
+                null,
+                ScenarioType.HAPPY_PATH,
+                null,
+                null,
+                "qa",
+                List.of(),
+                null,
+                null
+        )))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("NO_SCENARIOS_GENERATED")
+                .hasMessageContaining("trace-123");
+    }
+
     private App app(Long id) {
         App app = App.builder()
                 .name("FlowOps")
@@ -148,5 +268,46 @@ class ScenarioServiceTest {
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", id);
         return endpoint;
+    }
+
+    private TestCase testCase(Long id, App app, ApiEndpoint endpoint) {
+        TestCase testCase = TestCase.builder()
+                .app(app)
+                .apiEndpoint(endpoint)
+                .name("Create order")
+                .description("Existing saved order creation test")
+                .type(TestCaseType.HAPPY_PATH)
+                .testLevel(TestLevel.REGRESSION)
+                .source(TestCaseSource.AUTO)
+                .requestSpec("{\"method\":\"POST\"}")
+                .expectedSpec("{\"statusCode\":201}")
+                .assertionSpec("{\"bodyContains\":[\"orderId\"]}")
+                .active(true)
+                .version(1)
+                .build();
+        ReflectionTestUtils.setField(testCase, "id", id);
+        return testCase;
+    }
+
+    private ScenarioGenerateResponse successResponse() {
+        return new ScenarioGenerateResponse(
+                null,
+                null,
+                true,
+                new ScenarioGenerateDataPayload(List.of(), List.of()),
+                null,
+                null,
+                "trace-ok"
+        );
+    }
+
+    private ExternalServiceProperties.Ai aiProperties(boolean mockEnabled) {
+        return new ExternalServiceProperties.Ai(
+                "http://localhost:8000",
+                null,
+                mockEnabled,
+                1000,
+                1000
+        );
     }
 }

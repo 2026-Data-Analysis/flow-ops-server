@@ -209,6 +209,7 @@ public class ScenarioService {
         List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
                 ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
                 : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
+        validateScenarioEndpoints(app.getId(), aiEndpoints);
         Map<String, Long> apiIdByEndpointId = scenarioApiIdByEndpointId(inventories, endpoints);
         String projectId = projectId(app, inventories);
         log.info("Scenario recommendation payload prepared. appId={}, requestedApiIdCount={}, inventoryCount={}, endpointFallbackCount={}, aiEndpointCount={}, firstEndpointIds={}",
@@ -233,6 +234,7 @@ public class ScenarioService {
                 projectId,
                 aiEndpoints
         ));
+        validateScenarioGenerateResponse(response, app.getId());
 
         List<ScenarioPayload> scenarios = scenarios(response);
         if (response == null || scenarios.isEmpty()) {
@@ -286,14 +288,39 @@ public class ScenarioService {
         List<ScenarioEndpointPayload> aiEndpoints = !inventories.isEmpty()
                 ? inventories.stream().map(this::toScenarioEndpointPayload).toList()
                 : endpoints.stream().map(this::toScenarioEndpointPayload).toList();
+        validateScenarioEndpoints(app.getId(), aiEndpoints);
         String projectId = projectId(app, inventories);
 
-        return aiClient.buildScenario(buildScenarioGenerateRequest(
+        ScenarioGenerateResponse response = aiClient.buildScenario(buildScenarioGenerateRequest(
                 request,
                 app,
                 projectId,
                 aiEndpoints
         ));
+        validateScenarioGenerateResponse(response, app.getId());
+        return response;
+    }
+
+    private void validateScenarioEndpoints(Long appId, List<ScenarioEndpointPayload> aiEndpoints) {
+        if (aiEndpoints == null || aiEndpoints.isEmpty()) {
+            log.warn("Scenario generation blocked because api_inventory.endpoints is empty. appId={}", appId);
+            throw new ApiException(ErrorCode.INVALID_INPUT, "api_inventory.endpoints must contain at least one endpoint.");
+        }
+    }
+
+    private void validateScenarioGenerateResponse(ScenarioGenerateResponse response, Long appId) {
+        if (response != null && Boolean.FALSE.equals(response.success())) {
+            log.warn("AI scenario generator returned failure. appId={}, errorCode={}, errorMessage={}, traceId={}",
+                    appId,
+                    response.error_code(),
+                    response.error_message(),
+                    response.trace_id());
+            throw new ApiException(
+                    ErrorCode.EXTERNAL_SERVICE_ERROR,
+                    "AI scenario generator failed. error_code=%s, error_message=%s, trace_id=%s"
+                            .formatted(response.error_code(), response.error_message(), response.trace_id())
+            );
+        }
     }
 
     private List<ScenarioRecommendationResponse> mockRecommendations() {
@@ -395,7 +422,7 @@ public class ScenarioService {
                 "NATURAL_LANGUAGE".equals(mode) ? userIntent(request) : null,
                 new ScenarioApiInventoryPayload(projectId, apis),
                 environmentPayload(request, resolveEnvironment(request, app)),
-                "RECOMMEND".equals(mode) ? existingTestCases(app.getId()) : null,
+                existingTestCases(app.getId()),
                 existingScenarios(app.getId()),
                 maxScenarios(request, mode),
                 maxStepsPerScenario(request, mode)
