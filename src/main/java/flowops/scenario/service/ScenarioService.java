@@ -638,25 +638,36 @@ public class ScenarioService {
         String reason = scenario.meta() == null || scenario.meta().rationale() == null
                 ? scenario.description()
                 : scenario.meta().rationale();
+        // 시나리오 단위 test_level은 Scenario.test_level 우선, 없으면 meta.test_level을 사용한다(스펙상 동일 값).
+        String scenarioTestLevel = scenario.test_level() != null
+                ? scenario.test_level()
+                : scenario.meta() == null ? null : scenario.meta().test_level();
         return new ScenarioRecommendationResponse(
                 scenario.name(),
                 fallbackType == null ? ScenarioType.HAPPY_PATH : fallbackType,
                 reason,
                 scenario.steps() == null ? List.of() : scenario.steps().stream()
-                        .map(step -> toRecommendationStep(step, apiIdByEndpointId))
+                        .map(step -> toRecommendationStep(step, apiIdByEndpointId, scenarioTestLevel))
                         .toList()
         );
     }
 
     private ScenarioRecommendationResponse.Step toRecommendationStep(
             ScenarioStepPayload step,
-            Map<String, Long> apiIdByEndpointId
+            Map<String, Long> apiIdByEndpointId,
+            String scenarioTestLevel
     ) {
         return new ScenarioRecommendationResponse.Step(
                 step.order(),
                 apiIdByEndpointId.get(step.apiId()),
                 step.apiId(),
                 stepLabel(step),
+                step.type(),
+                step.description(),
+                scenarioTestLevel,
+                step.userRole(),
+                step.stateCondition(),
+                step.dataVariant(),
                 requestConfig(step),
                 jsonString(step.chained_variables()),
                 validationRules(step)

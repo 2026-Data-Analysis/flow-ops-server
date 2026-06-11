@@ -303,6 +303,8 @@ public final class AiAgentContracts {
             String name,
             String description,
             String type,
+            @JsonProperty("test_level")
+            String test_level,
             List<ScenarioStepPayload> steps,
             MetaPayload meta
     ) {
@@ -313,6 +315,8 @@ public final class AiAgentContracts {
             String rationale,
             @JsonProperty("coverage_gap")
             String coverage_gap,
+            @JsonProperty("test_level")
+            String test_level,
             @JsonProperty("estimated_risk")
             String estimated_risk
     ) {
