@@ -54,6 +54,10 @@ public class GithubWebhookService {
         RepositoryInfo repositoryInfo = repositoryInfoRepository.findByFullName(repositoryFullName)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "등록된 GitHub 저장소를 찾을 수 없습니다."));
 
+        if (!repositoryInfo.isAutoSyncEnabled()) {
+            return GithubWebhookResult.ignored(event, repositoryFullName, "API Inventory Auto Sync is disabled for this repository.");
+        }
+
         apiInventoryImportService.importFromRepositoryBranch(repositoryInfo, targetBranch.get());
         return new GithubWebhookResult(
                 event,

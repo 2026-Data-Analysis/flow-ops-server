@@ -7,6 +7,7 @@ import flowops.app.repository.AppRepository;
 import flowops.environment.service.EnvironmentProvisioningService;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
+import jakarta.persistence.EntityManager;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class AppService {
 
     private final AppRepository appRepository;
     private final EnvironmentProvisioningService environmentProvisioningService;
+    private final EntityManager entityManager;
 
     @Transactional
     public AppDetailResponse createApp(CreateAppRequest request) {
@@ -53,6 +55,13 @@ public class AppService {
         return AppDetailResponse.from(getApp(appId));
     }
 
+    @Transactional
+    public void deleteApp(Long appId) {
+        App app = getApp(appId);
+        deleteDependentData(appId);
+        appRepository.delete(app);
+    }
+
     @Transactional(readOnly = true)
     public App getApp(Long appId) {
         return appRepository.findById(appId)
@@ -71,5 +80,66 @@ public class AppService {
             branches.add(defaultBranch);
         }
         return branches;
+    }
+
+    private void deleteDependentData(Long appId) {
+        execute("""
+                delete from reports
+                where execution_id in (select id from executions where app_id = :appId)
+                """, appId);
+        execute("""
+                delete from test_validation_results
+                where execution_step_id in (
+                    select log.id
+                    from execution_step_logs log
+                    join executions e on e.id = log.execution_id
+                    where e.app_id = :appId
+                )
+                """, appId);
+        execute("""
+                delete from execution_step_logs
+                where execution_id in (select id from executions where app_id = :appId)
+                """, appId);
+        execute("delete from executions where app_id = :appId", appId);
+        execute("""
+                delete from generated_test_case_drafts
+                where generation_id in (select id from test_generations where app_id = :appId)
+                """, appId);
+        execute("""
+                delete from test_generation_api_selections
+                where generation_id in (select id from test_generations where app_id = :appId)
+                """, appId);
+        execute("delete from test_generations where app_id = :appId", appId);
+        execute("""
+                delete from test_case_versions
+                where test_case_id in (select id from test_cases where app_id = :appId)
+                """, appId);
+        execute("delete from test_cases where app_id = :appId", appId);
+        execute("""
+                delete from scenario_steps
+                where scenario_id in (select id from scenarios where app_id = :appId)
+                """, appId);
+        execute("delete from scenarios where app_id = :appId", appId);
+        execute("""
+                delete from trigger_rules
+                where environment_id in (select id from environments where app_id = :appId)
+                """, appId);
+        execute("delete from environments where app_id = :appId", appId);
+        execute("""
+                delete from api_inventories
+                where repository_id in (select id from project_repositories where app_id = :appId)
+                """, appId);
+        execute("""
+                delete from repository_branches
+                where repository_id in (select id from project_repositories where app_id = :appId)
+                """, appId);
+        execute("delete from project_repositories where app_id = :appId", appId);
+        execute("delete from api_endpoints where app_id = :appId", appId);
+    }
+
+    private void execute(String sql, Long appId) {
+        entityManager.createNativeQuery(sql)
+                .setParameter("appId", appId)
+                .executeUpdate();
     }
 }

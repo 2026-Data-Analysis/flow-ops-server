@@ -7,23 +7,25 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 public record RepositoryResponse(
-        @Schema(description = "저장소 ID", example = "20")
+        @Schema(description = "Repository ID", example = "20")
         Long id,
-        @Schema(description = "프로젝트 ID", example = "1")
+        @Schema(description = "Project ID", example = "1")
         Long projectId,
         @Schema(description = "Linked app ID", example = "1")
         Long appId,
-        @Schema(description = "전체 저장소 이름", example = "flowops/backend")
+        @Schema(description = "GitHub repository full name", example = "flowops/backend")
         String fullName,
-        @Schema(description = "저장소 URL", example = "https://github.com/flowops/backend")
+        @Schema(description = "Repository URL", example = "https://github.com/flowops/backend")
         String repositoryUrl,
-        @Schema(description = "기본 브랜치", example = "main")
+        @Schema(description = "Default branch", example = "main")
         String defaultBranch,
-        @Schema(description = "연결 상태", example = "ACTIVE")
+        @Schema(description = "Repository connection status", example = "ACTIVE")
         RepositoryConnectionStatus connectionStatus,
-        @Schema(description = "브랜치 목록")
+        @Schema(description = "Whether Merge push webhooks automatically refresh API Inventory", example = "true")
+        boolean autoSyncEnabled,
+        @Schema(description = "Repository branches")
         List<BranchResponse> branches,
-        @Schema(description = "선택 브랜치별 API 스캔 결과")
+        @Schema(description = "API inventory scan results")
         List<ScanResultResponse> scanResults
 ) {
     public static RepositoryResponse from(
@@ -39,6 +41,7 @@ public record RepositoryResponse(
                 repositoryInfo.getRepositoryUrl(),
                 repositoryInfo.getDefaultBranch(),
                 repositoryInfo.getConnectionStatus(),
+                repositoryInfo.isAutoSyncEnabled(),
                 branches,
                 scanResults
         );

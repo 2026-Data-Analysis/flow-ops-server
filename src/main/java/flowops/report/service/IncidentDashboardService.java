@@ -63,8 +63,8 @@ public class IncidentDashboardService {
         List<ExecutionStepLog> currentRiskLogs = filterByRisk(currentLogs, risk);
         List<ExecutionStepLog> previousRiskLogs = filterByRisk(previousLogs, risk);
 
-        DashboardMetrics currentMetrics = calculateMetrics(currentExecutions, currentRiskLogs, period.days(), period.from().toLocalDate());
-        DashboardMetrics previousMetrics = calculateMetrics(previousExecutions, previousRiskLogs, period.days(), previousFrom.toLocalDate());
+        DashboardMetrics currentMetrics = calculateMetrics(currentExecutions, currentLogs, currentRiskLogs, period.days(), period.from().toLocalDate());
+        DashboardMetrics previousMetrics = calculateMetrics(previousExecutions, previousLogs, previousRiskLogs, period.days(), previousFrom.toLocalDate());
 
         return new IncidentDashboardResponse(
                 currentMetrics.successRate,
@@ -120,24 +120,17 @@ public class IncidentDashboardService {
     private DashboardMetrics calculateMetrics(
             List<Execution> executions,
             List<ExecutionStepLog> logs,
+            List<ExecutionStepLog> errorLogs,
             int days,
             LocalDate startDate
     ) {
-        int totalTests = executions.stream()
-                .map(Execution::getTotalCount)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
-        int failedTests = executions.stream()
-                .map(Execution::getFailedCount)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
-        int passedTests = executions.stream()
-                .map(Execution::getPassedCount)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
+        Map<Long, List<ExecutionStepLog>> logsByExecution = logs.stream()
+                .filter(log -> log.getExecution() != null && log.getExecution().getId() != null)
+                .collect(Collectors.groupingBy(log -> log.getExecution().getId()));
+        TestCounts counts = aggregateCounts(executions, logsByExecution);
+        int totalTests = counts.total();
+        int failedTests = counts.failed();
+        int passedTests = counts.passed();
         double successRate = totalTests == 0 ? 0.0 : round((passedTests * 100.0) / totalTests);
         double failureRate = totalTests == 0 ? 0.0 : round((failedTests * 100.0) / totalTests);
         double avgDurationMs = round(executions.stream()
@@ -146,10 +139,10 @@ public class IncidentDashboardService {
                 .mapToLong(Long::longValue)
                 .average()
                 .orElse(0.0));
-        long totalErrors = logs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count();
-        long criticalErrors = logs.stream().filter(this::isCriticalError).count();
-        long recurring = recurringCount(logs);
-        long affectedApis = logs.stream()
+        long totalErrors = errorLogs.stream().filter(log -> log.getStatus() == ExecutionStepStatus.FAILED).count();
+        long criticalErrors = errorLogs.stream().filter(this::isCriticalError).count();
+        long recurring = recurringCount(errorLogs);
+        long affectedApis = errorLogs.stream()
                 .filter(log -> log.getStatus() == ExecutionStepStatus.FAILED)
                 .map(this::endpointLabel)
                 .filter(label -> label != null && !label.isBlank())
@@ -168,36 +161,73 @@ public class IncidentDashboardService {
                 failureRate,
                 mttrMinutes,
                 affectedApis,
-                buildTrend(executions, days, startDate),
-                buildErrorDistribution(logs),
-                buildErrorsByEnvironment(logs),
-                buildTopFailingApis(logs),
-                buildRecentIncidents(executions, logs)
+                buildTrend(executions, logsByExecution, days, startDate),
+                buildErrorDistribution(errorLogs),
+                buildErrorsByEnvironment(errorLogs),
+                buildTopFailingApis(errorLogs),
+                buildRecentIncidents(executions, errorLogs)
         );
+    }
+
+    private TestCounts aggregateCounts(
+            List<Execution> executions,
+            Map<Long, List<ExecutionStepLog>> logsByExecution
+    ) {
+        int total = 0;
+        int passed = 0;
+        int failed = 0;
+        for (Execution execution : executions) {
+            TestCounts counts = countsForExecution(execution, logsByExecution);
+            total += counts.total();
+            passed += counts.passed();
+            failed += counts.failed();
+        }
+        return new TestCounts(total, passed, failed);
+    }
+
+    private TestCounts countsForExecution(
+            Execution execution,
+            Map<Long, List<ExecutionStepLog>> logsByExecution
+    ) {
+        List<ExecutionStepLog> executionLogs = logsByExecution.getOrDefault(execution.getId(), List.of());
+        if (!executionLogs.isEmpty()) {
+            int passed = (int) executionLogs.stream()
+                    .filter(log -> log.getStatus() == ExecutionStepStatus.SUCCESS)
+                    .count();
+            int failed = (int) executionLogs.stream()
+                    .filter(log -> log.getStatus() == ExecutionStepStatus.FAILED)
+                    .count();
+            return new TestCounts(passed + failed, passed, failed);
+        }
+        int passed = execution.getPassedCount() == null ? 0 : execution.getPassedCount();
+        int failed = execution.getFailedCount() == null ? 0 : execution.getFailedCount();
+        int total = execution.getTotalCount() == null ? passed + failed : execution.getTotalCount();
+        return new TestCounts(total, passed, failed);
     }
 
     private List<IncidentDashboardResponse.TestResultTrendPointResponse> buildTrend(
             List<Execution> executions,
+            Map<Long, List<ExecutionStepLog>> logsByExecution,
             int days,
             LocalDate startDate
     ) {
-        Map<LocalDate, Integer> passedByDate = new HashMap<>();
-        Map<LocalDate, Integer> failedByDate = new HashMap<>();
+        Map<LocalDate, TrendCounts> countsByDate = new HashMap<>();
         for (Execution execution : executions) {
             LocalDate date = executedAt(execution).toLocalDate();
-            passedByDate.merge(date, execution.getPassedCount() == null ? 0 : execution.getPassedCount(), Integer::sum);
-            failedByDate.merge(date, execution.getFailedCount() == null ? 0 : execution.getFailedCount(), Integer::sum);
+            countsByDate.computeIfAbsent(date, ignored -> new TrendCounts())
+                    .add(execution, logsByExecution.getOrDefault(execution.getId(), List.of()));
         }
 
         List<IncidentDashboardResponse.TestResultTrendPointResponse> points = new ArrayList<>();
         for (int i = 0; i < days; i++) {
             LocalDate date = startDate.plusDays(i);
+            TrendCounts counts = countsByDate.getOrDefault(date, new TrendCounts());
             points.add(new IncidentDashboardResponse.TestResultTrendPointResponse(
                     date,
-                    passedByDate.getOrDefault(date, 0),
-                    failedByDate.getOrDefault(date, 0),
-                    passedByDate.getOrDefault(date, 0),
-                    failedByDate.getOrDefault(date, 0)
+                    counts.passedTests,
+                    counts.failedTests,
+                    counts.passedApis.size(),
+                    counts.failedApis.size()
             ));
         }
         return points;
@@ -461,6 +491,53 @@ public class IncidentDashboardService {
     }
 
     private record DashboardPeriod(LocalDateTime from, LocalDateTime to, int days) {
+    }
+
+    private record TestCounts(int total, int passed, int failed) {
+    }
+
+    private static class TrendCounts {
+
+        private int passedTests;
+        private int failedTests;
+        private final Set<String> passedApis = new java.util.LinkedHashSet<>();
+        private final Set<String> failedApis = new java.util.LinkedHashSet<>();
+
+        private void add(Execution execution, List<ExecutionStepLog> logs) {
+            if (logs.isEmpty()) {
+                int passed = execution.getPassedCount() == null ? 0 : execution.getPassedCount();
+                int failed = execution.getFailedCount() == null ? 0 : execution.getFailedCount();
+                passedTests += passed;
+                failedTests += failed;
+                String fallbackEndpoint = execution.getExecutionType() + ":" + execution.getTargetId();
+                if (passed > 0) {
+                    passedApis.add(fallbackEndpoint);
+                }
+                if (failed > 0) {
+                    failedApis.add(fallbackEndpoint);
+                }
+                return;
+            }
+            for (ExecutionStepLog log : logs) {
+                String endpoint = endpointLabel(log);
+                if (log.getStatus() == ExecutionStepStatus.SUCCESS) {
+                    passedTests++;
+                    if (!endpoint.isBlank()) {
+                        passedApis.add(endpoint);
+                    }
+                } else if (log.getStatus() == ExecutionStepStatus.FAILED) {
+                    failedTests++;
+                    if (!endpoint.isBlank()) {
+                        failedApis.add(endpoint);
+                    }
+                }
+            }
+        }
+
+        private String endpointLabel(ExecutionStepLog log) {
+            String method = log.getMethod() == null ? "" : log.getMethod() + " ";
+            return method + (log.getPath() == null ? "" : log.getPath());
+        }
     }
 
     private enum RiskLevel {

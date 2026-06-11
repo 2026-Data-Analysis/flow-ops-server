@@ -80,6 +80,9 @@ public class RepositoryInfo extends BaseEntity {
     @Comment("마지막 동기화 시각")
     private LocalDateTime lastSyncedAt;
 
+    @Column(name = "auto_sync_enabled", nullable = false)
+    private boolean autoSyncEnabled = true;
+
     @OneToMany(mappedBy = "repositoryInfo", cascade = CascadeType.ALL, orphanRemoval = true)
     @Comment("저장소에서 조회한 브랜치 목록")
     private List<RepositoryBranch> branches = new ArrayList<>();
@@ -95,7 +98,8 @@ public class RepositoryInfo extends BaseEntity {
             String defaultBranch,
             String externalRepositoryId,
             RepositoryConnectionStatus connectionStatus,
-            LocalDateTime lastSyncedAt
+            LocalDateTime lastSyncedAt,
+            Boolean autoSyncEnabled
     ) {
         this.project = project;
         this.app = app;
@@ -107,6 +111,7 @@ public class RepositoryInfo extends BaseEntity {
         this.externalRepositoryId = externalRepositoryId;
         this.connectionStatus = connectionStatus;
         this.lastSyncedAt = lastSyncedAt;
+        this.autoSyncEnabled = autoSyncEnabled == null || autoSyncEnabled;
     }
 
     public void addBranch(String branchName, boolean selected, boolean defaultBranch) {
@@ -126,6 +131,10 @@ public class RepositoryInfo extends BaseEntity {
 
     public void connectApp(App app) {
         this.app = app;
+    }
+
+    public void updateAutoSyncEnabled(boolean autoSyncEnabled) {
+        this.autoSyncEnabled = autoSyncEnabled;
     }
 
     public String getOwner() {

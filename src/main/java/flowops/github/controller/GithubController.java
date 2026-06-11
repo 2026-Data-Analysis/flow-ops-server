@@ -5,6 +5,7 @@ import flowops.global.response.ApiResponse;
 import flowops.global.swagger.CommonApiErrorResponses;
 import flowops.github.dto.request.RegisterRepositoryRequest;
 import flowops.github.dto.request.ScanRepositoryRequest;
+import flowops.github.dto.request.UpdateRepositoryAutoSyncRequest;
 import flowops.github.dto.response.BranchResponse;
 import flowops.github.dto.response.RepositoryResponse;
 import flowops.github.service.GithubService;
@@ -14,6 +15,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -63,6 +65,16 @@ public class GithubController {
             @PathVariable Long repositoryId
     ) {
         return ApiResponse.success(githubService.listRepositoryBranches(projectId, repositoryId));
+    }
+
+    @PatchMapping("/{repositoryId}/auto-sync")
+    @Operation(summary = "Update repository Auto Sync", description = "Enable or disable Merge push webhook based API Inventory refresh.")
+    public ApiResponse<RepositoryResponse> updateRepositoryAutoSync(
+            @PathVariable Long projectId,
+            @PathVariable Long repositoryId,
+            @Valid @RequestBody UpdateRepositoryAutoSyncRequest request
+    ) {
+        return ApiResponse.success(githubService.updateAutoSync(projectId, repositoryId, request));
     }
 
     @PostMapping("/{repositoryId}/scan")

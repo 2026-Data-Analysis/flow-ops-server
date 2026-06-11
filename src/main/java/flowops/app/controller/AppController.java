@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,5 +54,12 @@ public class AppController {
     ) {
         String title = request != null ? request.title() : null;
         return ApiResponse.success(appService.setMain(appId, title));
+    }
+
+    @DeleteMapping("/{appId}")
+    @Operation(summary = "Delete application", description = "Delete an application and its dependent FlowOps data.")
+    public ApiResponse<Void> deleteApp(@PathVariable Long appId) {
+        appService.deleteApp(appId);
+        return ApiResponse.success(null);
     }
 }

@@ -2,6 +2,7 @@ package flowops.github.service;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,5 +67,40 @@ class GithubWebhookServiceTest {
                 """);
 
         verify(apiInventoryImportService).importFromRepositoryBranch(eq(repositoryInfo), eq("main"));
+    }
+
+    @Test
+    void skipsScanWhenRepositoryAutoSyncIsDisabled() {
+        RepositoryInfo repositoryInfo = RepositoryInfo.builder()
+                .project(Project.builder()
+                        .name("FlowOps")
+                        .slug("flowops")
+                        .status(ProjectStatus.ACTIVE)
+                        .build())
+                .provider(RepositoryProvider.GITHUB)
+                .repositoryName("flowops-server")
+                .fullName("2026-Data-Analysis/flow-ops-server")
+                .repositoryUrl("https://github.com/2026-Data-Analysis/flow-ops-server")
+                .defaultBranch("main")
+                .connectionStatus(RepositoryConnectionStatus.ACTIVE)
+                .autoSyncEnabled(false)
+                .build();
+        when(repositoryInfoRepository.findByFullName("2026-Data-Analysis/flow-ops-server"))
+                .thenReturn(Optional.of(repositoryInfo));
+
+        service.handle("push", null, """
+                {
+                  "ref": "refs/heads/main",
+                  "repository": {
+                    "full_name": "2026-Data-Analysis/flow-ops-server"
+                  },
+                  "head_commit": {
+                    "message": "Merge pull request #1 from feature/api"
+                  },
+                  "commits": []
+                }
+                """);
+
+        verify(apiInventoryImportService, never()).importFromRepositoryBranch(eq(repositoryInfo), eq("main"));
     }
 }

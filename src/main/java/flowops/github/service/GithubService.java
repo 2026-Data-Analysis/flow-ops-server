@@ -12,6 +12,7 @@ import flowops.github.domain.entity.RepositoryInfo;
 import flowops.github.domain.entity.RepositoryProvider;
 import flowops.github.dto.request.RegisterRepositoryRequest;
 import flowops.github.dto.request.ScanRepositoryRequest;
+import flowops.github.dto.request.UpdateRepositoryAutoSyncRequest;
 import flowops.github.dto.response.BranchResponse;
 import flowops.github.dto.response.RepositoryResponse;
 import flowops.github.dto.response.RepositorySnapshot;
@@ -54,7 +55,12 @@ public class GithubService {
         Project project = projectService.getProjectOrCreateDefault(projectId);
         RepositoryName repositoryName = RepositoryName.from(request.fullName());
         return repositoryInfoRepository.findByFullName(repositoryName.fullName())
-                .map(repositoryInfo -> connectExistingRepositoryApp(repositoryInfo, request.appId(), request.selectedBranches()))
+                .map(repositoryInfo -> connectExistingRepositoryApp(
+                        repositoryInfo,
+                        request.appId(),
+                        request.selectedBranches(),
+                        request.autoSyncEnabled()
+                ))
                 .orElseGet(() -> registerNewRepository(project, repositoryName, request));
     }
 
@@ -82,6 +88,7 @@ public class GithubService {
                 .externalRepositoryId(snapshot.externalId())
                 .connectionStatus(RepositoryConnectionStatus.ACTIVE)
                 .lastSyncedAt(LocalDateTime.now())
+                .autoSyncEnabled(request.autoSyncEnabled())
                 .build();
 
         branches.forEach(branch -> repositoryInfo.addBranch(branch.name(), branch.selected(), branch.isDefault()));
@@ -104,10 +111,14 @@ public class GithubService {
     private RepositoryResponse connectExistingRepositoryApp(
             RepositoryInfo repositoryInfo,
             Long appId,
-            List<String> selectedBranches
+            List<String> selectedBranches,
+            Boolean autoSyncEnabled
     ) {
         if (appId != null && repositoryInfo.getApp() == null) {
             repositoryInfo.connectApp(appService.getApp(appId));
+        }
+        if (autoSyncEnabled != null) {
+            repositoryInfo.updateAutoSyncEnabled(autoSyncEnabled);
         }
 
         App app = repositoryInfo.getApp();
@@ -121,6 +132,14 @@ public class GithubService {
         }
 
         ensureSelectedBranchEnvironments(app, repositoryInfo);
+        return toResponse(repositoryInfo);
+    }
+
+    @Transactional
+    public RepositoryResponse updateAutoSync(Long projectId, Long repositoryId, UpdateRepositoryAutoSyncRequest request) {
+        RepositoryInfo repositoryInfo = getRepository(repositoryId);
+        validateProjectScope(projectId, repositoryInfo);
+        repositoryInfo.updateAutoSyncEnabled(request.autoSyncEnabled());
         return toResponse(repositoryInfo);
     }
 

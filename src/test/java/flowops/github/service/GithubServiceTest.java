@@ -64,7 +64,8 @@ class GithubServiceTest {
         githubService.registerRepository(1L, new RegisterRepositoryRequest(
                 "flowops/backend",
                 1L,
-                List.of("main", "develop")
+                List.of("main", "develop"),
+                null
         ));
 
         verify(environmentProvisioningService).ensureBranchEnvironment(app, repositoryInfo, "main", true);
