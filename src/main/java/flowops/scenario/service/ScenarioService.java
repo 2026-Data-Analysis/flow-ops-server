@@ -597,13 +597,15 @@ public class ScenarioService {
         String endpointId = testCase.getApiInventory() == null
                 ? endpointId(testCase.getApiEndpoint().getMethod().name(), testCase.getApiEndpoint().getPath())
                 : endpointId(testCase.getApiInventory().getMethod().name(), testCase.getApiInventory().getEndpointPath());
+        String testLevel = testCase.getTestLevel() == null ? null : testCase.getTestLevel().name();
         return new ScenarioExistingTestCasePayload(
                 String.valueOf(testCase.getId()),
                 endpointId,
                 testCase.getName(),
                 testCase.getType() == null ? null : testCase.getType().name(),
                 testCase.getDescription(),
-                testCase.getTestLevel() == null ? null : testCase.getTestLevel().name(),
+                testLevel,
+                testLevel,
                 parseJson(testCase.getRequestSpec()),
                 parseJson(testCase.getExpectedSpec()),
                 parseJson(testCase.getAssertionSpec()),
