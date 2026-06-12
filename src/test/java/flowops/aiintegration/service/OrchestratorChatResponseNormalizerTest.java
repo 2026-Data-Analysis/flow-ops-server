@@ -184,6 +184,66 @@ class OrchestratorChatResponseNormalizerTest {
     }
 
     @Test
+    void normalizeSkipsContextEndpointThatDoesNotBelongToApp() throws Exception {
+        App app = app(1L);
+        App otherApp = app(2L);
+        ApiEndpoint endpoint = endpoint(1999L, app);
+        ApiEndpoint otherEndpoint = endpoint(9999L, otherApp, "/other");
+        JsonNode context = objectMapper.readTree("""
+                {
+                  "api_inventory": {
+                    "endpoints": [
+                      {"endpoint_id": "9999"}
+                    ]
+                  }
+                }
+                """);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "1999",
+                      "title": "Order creation succeeds",
+                      "type": "success"
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("1", "create order test", context);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-context-skip"
+        );
+
+        when(appService.getApp(1L)).thenReturn(app);
+        when(apiEndpointRepository.findById(9999L)).thenReturn(Optional.of(otherEndpoint));
+        when(apiEndpointRepository.findById(1999L)).thenReturn(Optional.of(endpoint));
+        when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
+            TestGeneration generation = invocation.getArgument(0);
+            ReflectionTestUtils.setField(generation, "id", 91L);
+            return generation;
+        });
+        when(draftRepository.save(any(GeneratedTestCaseDraft.class))).thenAnswer(invocation -> {
+            GeneratedTestCaseDraft draft = invocation.getArgument(0);
+            ReflectionTestUtils.setField(draft, "id", 2004L);
+            return draft;
+        });
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("selectedEndpoint").path("id").asLong()).isEqualTo(1999L);
+        assertThat(draft.path("selectedEndpoint").path("path").asText()).isEqualTo("/orders");
+    }
+
+    @Test
     void normalizeResolvesContextInventoryIdByMethodAndPath() throws Exception {
         App app = app(3L);
         ApiEndpoint endpoint = endpoint(2056L, app, "/mates/chat");

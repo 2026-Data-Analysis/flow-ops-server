@@ -351,7 +351,7 @@ public class ScenarioService {
         String originalReason = null;
         try {
             original = aiClient.buildScenario(request);
-            originalReason = fallbackReason(original);
+            originalReason = fallbackReason(original, request);
             if (originalReason == null) {
                 return original;
             }
@@ -383,7 +383,7 @@ public class ScenarioService {
 
         ScenarioGenerateRequest fallbackRequest = fallbackRequest(request, false);
         ScenarioGenerateResponse fallback = callFallback(request, fallbackRequest, originalReason, false);
-        if (fallbackReason(fallback) == null) {
+        if (fallbackReason(fallback, fallbackRequest) == null) {
             return markFallback(fallback, originalReason);
         }
 
@@ -392,7 +392,7 @@ public class ScenarioService {
                     request == null ? null : request.project_id(),
                     appId);
             ScenarioGenerateResponse retry = callFallback(request, fallbackRequest(request, true), originalReason, true);
-            if (fallbackReason(retry) == null) {
+            if (fallbackReason(retry, fallbackRequest(request, true)) == null) {
                 return markFallback(retry, originalReason);
             }
             fallback = retry;
@@ -501,9 +501,12 @@ public class ScenarioService {
         return scenarioProperties == null || scenarioProperties.demoFallbackEnabled();
     }
 
-    private String fallbackReason(ScenarioGenerateResponse response) {
+    private String fallbackReason(ScenarioGenerateResponse response, ScenarioGenerateRequest request) {
         if (response == null) {
             return "NO_RESPONSE";
+        }
+        if (isRecommendMode(request) && (hasText(response.error_code()) || hasText(response.error_message()))) {
+            return defaultIfBlank(response.error_code(), "SCENARIO_AGENT_ERROR");
         }
         if (Boolean.FALSE.equals(response.success())) {
             return defaultIfBlank(response.error_code(), "SCENARIO_AGENT_FAILED");
@@ -512,6 +515,14 @@ public class ScenarioService {
             return "NO_SCENARIOS_GENERATED";
         }
         return null;
+    }
+
+    private boolean isRecommendMode(ScenarioGenerateRequest request) {
+        return request != null && "RECOMMEND".equalsIgnoreCase(request.mode());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private ScenarioGenerateRequest fallbackRequest(ScenarioGenerateRequest request, boolean clearExistingScenarios) {
@@ -545,7 +556,7 @@ public class ScenarioService {
                     endpointCount,
                     existingScenarioCount);
             ScenarioGenerateResponse response = aiClient.buildScenario(fallbackRequest);
-            String reason = fallbackReason(response);
+            String reason = fallbackReason(response, fallbackRequest);
             if (reason == null) {
                 int scenarioCount = response.data() == null || response.data().scenarios() == null ? 0 : response.data().scenarios().size();
                 int usedEndpointCount = response.data() == null || response.data().used_endpoint_ids() == null ? 0 : response.data().used_endpoint_ids().size();

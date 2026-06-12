@@ -496,6 +496,32 @@ class ScenarioServiceTest {
     }
 
     @Test
+    void buildScenarioRetriesWithDemoFallbackForAnyRecommendModeErrorField() {
+        when(scenarioProperties.demoFallbackEnabled()).thenReturn(true);
+        when(aiClient.buildScenario(any(ScenarioGenerateRequest.class)))
+                .thenReturn(new ScenarioGenerateResponse(
+                        null,
+                        null,
+                        true,
+                        scenarioResponse("trace-original").data(),
+                        "UNKNOWN_RECOMMEND_ERROR",
+                        "unexpected recommend error",
+                        "trace-original"
+                ))
+                .thenReturn(scenarioResponse("trace-fallback"));
+
+        ScenarioGenerateResponse response = scenarioService.buildScenarioWithDemoFallback(scenarioRecommendRequest(), 1L);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().fallback_used()).isTrue();
+        assertThat(response.data().fallback_reason()).isEqualTo("UNKNOWN_RECOMMEND_ERROR");
+        ArgumentCaptor<ScenarioGenerateRequest> captor = ArgumentCaptor.forClass(ScenarioGenerateRequest.class);
+        verify(aiClient, org.mockito.Mockito.times(2)).buildScenario(captor.capture());
+        assertThat(captor.getAllValues().get(0).mode()).isEqualTo("RECOMMEND");
+        assertThat(captor.getAllValues().get(1).mode()).isEqualTo("NATURAL_LANGUAGE");
+    }
+
+    @Test
     void buildScenarioRetriesFallbackWithoutExistingScenariosWhenDedupRemovesEverything() {
         when(scenarioProperties.demoFallbackEnabled()).thenReturn(true);
         when(scenarioProperties.demoFallbackMaxRetries()).thenReturn(2);
@@ -629,9 +655,17 @@ class ScenarioServiceTest {
     }
 
     private ScenarioGenerateRequest scenarioRequest() {
+        return scenarioRequest("NATURAL_LANGUAGE");
+    }
+
+    private ScenarioGenerateRequest scenarioRecommendRequest() {
+        return scenarioRequest("RECOMMEND");
+    }
+
+    private ScenarioGenerateRequest scenarioRequest(String mode) {
         return new ScenarioGenerateRequest(
                 "1",
-                "NATURAL_LANGUAGE",
+                mode,
                 "사용자 요청",
                 new ScenarioApiInventoryPayload(
                         "1",

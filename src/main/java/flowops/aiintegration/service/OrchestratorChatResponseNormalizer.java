@@ -196,8 +196,17 @@ public class OrchestratorChatResponseNormalizer {
             return endpoints;
         }
         for (JsonNode endpointNode : endpointNodes) {
-            ResolvedEndpoint endpoint = resolveContextEndpoint(app, endpointNode);
-            registerEndpoint(endpoints, endpointNode, endpoint);
+            try {
+                ResolvedEndpoint endpoint = resolveContextEndpoint(app, endpointNode);
+                registerEndpoint(endpoints, endpointNode, endpoint);
+            } catch (IllegalArgumentException exception) {
+                log.warn("Skipping unresolved orchestrator context endpoint. appId={}, endpointId={}, method={}, path={}, error={}",
+                        app.getId(),
+                        firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")),
+                        text(endpointNode, "method"),
+                        text(endpointNode, "path"),
+                        exception.getMessage());
+            }
         }
         return endpoints;
     }
@@ -379,7 +388,11 @@ public class OrchestratorChatResponseNormalizer {
         if (method == null || method.isBlank() || path == null || path.isBlank()) {
             return null;
         }
-        return new EndpointTarget(ApiMethod.valueOf(method.trim().toUpperCase()), path.trim());
+        try {
+            return new EndpointTarget(ApiMethod.valueOf(method.trim().toUpperCase()), path.trim());
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private JsonNode mergeExecutionTarget(JsonNode requestSpec, String executionEndpoint, String executionMethod, ApiEndpoint endpoint) {
