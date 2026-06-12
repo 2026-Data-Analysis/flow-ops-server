@@ -1,6 +1,7 @@
 package flowops.apiinventory.dto.response;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
@@ -34,7 +35,13 @@ public record AgentApiInventorySearchResponse(
         int testCaseCount,
 
         @Schema(description = "테스트케이스 생성 에이전트 호출에 참고할 기존 테스트케이스 목록")
-        List<AgentTestCaseSpec> testCases
+        List<AgentTestCaseSpec> testCases,
+
+        @Schema(description = "저장된 시나리오 수", example = "4")
+        int scenarioCount,
+
+        @Schema(description = "저장된 시나리오 목록")
+        List<ScenarioSummaryResponse> scenarios
 ) {
 
     @Schema(description = "에이전트용 API 명세")

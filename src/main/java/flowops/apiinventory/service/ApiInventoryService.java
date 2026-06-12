@@ -24,6 +24,10 @@ import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.project.domain.entity.Project;
 import flowops.project.service.ProjectService;
+import flowops.scenario.domain.entity.Scenario;
+import flowops.scenario.dto.response.ScenarioSummaryResponse;
+import flowops.scenario.repository.ScenarioRepository;
+import flowops.scenario.repository.ScenarioStepRepository;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestLevel;
 import flowops.testcase.repository.TestCaseRepository;
@@ -47,6 +51,8 @@ public class ApiInventoryService {
     private final ProjectService projectService;
     private final GithubService githubService;
     private final TestCaseRepository testCaseRepository;
+    private final ScenarioRepository scenarioRepository;
+    private final ScenarioStepRepository scenarioStepRepository;
     private final ExecutionStepLogRepository executionStepLogRepository;
     private final ObjectMapper objectMapper;
 
@@ -159,6 +165,12 @@ public class ApiInventoryService {
         List<AgentTestCaseSpec> testCases = findTestCasesForAgent(appId, inventories).stream()
                 .map(this::toAgentTestCaseSpec)
                 .toList();
+        List<ScenarioSummaryResponse> scenarios = findScenariosForAgent(appId).stream()
+                .map(scenario -> ScenarioSummaryResponse.from(
+                        scenario,
+                        scenarioStepRepository.countByScenarioId(scenario.getId())
+                ))
+                .toList();
 
         return new AgentApiInventorySearchResponse(
                 projectId,
@@ -170,7 +182,9 @@ public class ApiInventoryService {
                 apis.size(),
                 apis,
                 testCases.size(),
-                testCases
+                testCases,
+                scenarios.size(),
+                scenarios
         );
     }
 
@@ -286,6 +300,13 @@ public class ApiInventoryService {
                 .flatMap(inventory -> findTestCases(inventory).stream())
                 .forEach(testCase -> uniqueTestCases.putIfAbsent(testCase.getId(), testCase));
         return List.copyOf(uniqueTestCases.values());
+    }
+
+    private List<Scenario> findScenariosForAgent(Long appId) {
+        if (appId == null) {
+            return List.of();
+        }
+        return scenarioRepository.findByAppIdOrderByUpdatedAtDesc(appId);
     }
 
     private AgentTestCaseSpec toAgentTestCaseSpec(TestCase testCase) {
