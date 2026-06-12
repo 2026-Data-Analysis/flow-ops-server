@@ -23,6 +23,14 @@ public record GeneratedTestCaseDraftResponse(
         Long generationId,
         @Schema(description = "API endpoint or inventory ID", example = "10")
         Long apiId,
+        @Schema(description = "Project ID for inventory detail lookup.", example = "1")
+        Long projectId,
+        @Schema(description = "API inventory ID. Use with /projects/{projectId}/api-inventories/{inventoryId}.", example = "2248")
+        Long apiInventoryId,
+        @Schema(description = "Legacy API endpoint PK.", example = "10")
+        Long apiEndpointId,
+        @Schema(description = "Stable endpoint key in METHOD:/path format.", example = "POST:/orders")
+        String endpointId,
         @Schema(description = "Frontend display name for the selected endpoint.", example = "POST /orders")
         String endpointName,
         @Schema(description = "Selected endpoint metadata for grouping generated drafts.")
@@ -77,17 +85,27 @@ public record GeneratedTestCaseDraftResponse(
 
     public static GeneratedTestCaseDraftResponse from(GeneratedTestCaseDraft draft) {
         ResponseMetadata metadata = ResponseMetadataSupport.from(responseSchema(draft), draft.getExpectedSpec());
-        Long apiId = draft.getApiEndpoint().getId();
+        Long apiEndpointId = draft.getApiEndpoint().getId();
+        Long apiInventoryId = draft.getApiInventory() == null ? null : draft.getApiInventory().getId();
+        Long projectId = draft.getApiInventory() == null || draft.getApiInventory().getProject() == null
+                ? null
+                : draft.getApiInventory().getProject().getId();
+        Long apiId = apiInventoryId == null ? apiEndpointId : apiInventoryId;
         RequestSpecResponse request = RequestSpecResponse.from(draft);
         String executionMethod = request.method();
         String executionEndpoint = request.endpoint();
+        String endpointId = executionMethod + ":" + executionEndpoint;
         String riskLevel = defaultIfBlank(draft.getRiskLevel(), draft.getType());
         return new GeneratedTestCaseDraftResponse(
                 draft.getId(),
                 draft.getGeneration().getId(),
                 apiId,
+                projectId,
+                apiInventoryId,
+                apiEndpointId,
+                endpointId,
                 executionMethod + " " + executionEndpoint,
-                SelectedEndpointResponse.from(draft.getApiEndpoint(), apiId),
+                SelectedEndpointResponse.from(draft.getApiEndpoint(), apiId, projectId, apiInventoryId, apiEndpointId, endpointId),
                 draft.getTitle(),
                 executionMethod,
                 executionEndpoint,
@@ -137,6 +155,14 @@ public record GeneratedTestCaseDraftResponse(
     public record SelectedEndpointResponse(
             @Schema(description = "API or inventory ID used by the generation request.", example = "10")
             Long id,
+            @Schema(description = "Project ID for inventory detail lookup.", example = "1")
+            Long projectId,
+            @Schema(description = "API inventory ID.", example = "2248")
+            Long apiInventoryId,
+            @Schema(description = "Legacy API endpoint PK.", example = "10")
+            Long apiEndpointId,
+            @Schema(description = "Stable endpoint key in METHOD:/path format.", example = "POST:/orders")
+            String endpointId,
             @Schema(description = "HTTP method.", example = "POST")
             ApiMethod method,
             @Schema(description = "API path.", example = "/orders")
@@ -146,9 +172,20 @@ public record GeneratedTestCaseDraftResponse(
             @Schema(description = "Controller name.", example = "OrderController")
             String controllerName
     ) {
-        public static SelectedEndpointResponse from(ApiEndpoint endpoint, Long id) {
+        public static SelectedEndpointResponse from(
+                ApiEndpoint endpoint,
+                Long id,
+                Long projectId,
+                Long apiInventoryId,
+                Long apiEndpointId,
+                String endpointId
+        ) {
             return new SelectedEndpointResponse(
                     id,
+                    projectId,
+                    apiInventoryId,
+                    apiEndpointId,
+                    endpointId,
                     endpoint.getMethod(),
                     endpoint.getPath(),
                     endpoint.getDomainTag(),

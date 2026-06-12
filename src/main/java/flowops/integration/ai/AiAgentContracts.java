@@ -332,7 +332,10 @@ public final class AiAgentContracts {
             Integer order,
             @JsonProperty("chained_variables")
             JsonNode chained_variables,
+            @JsonProperty("endpoint_id")
+            String endpoint_id,
             String apiId,
+            String name,
             String title,
             String description,
             String type,

@@ -11,6 +11,10 @@ import static org.mockito.Mockito.when;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
 import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiHttpMethod;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.domain.entity.ApiInventorySource;
+import flowops.apiinventory.domain.entity.ApiInventoryStatus;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
@@ -18,6 +22,8 @@ import flowops.environment.service.EnvironmentService;
 import flowops.global.exception.ApiException;
 import flowops.integration.ai.AiGeneratedDraftCommand;
 import flowops.integration.ai.AiTestGenerationGateway;
+import flowops.project.domain.entity.Project;
+import flowops.project.domain.entity.ProjectStatus;
 import flowops.testcase.domain.entity.TestCase;
 import flowops.testcase.domain.entity.TestCaseSource;
 import flowops.testcase.domain.entity.TestLevel;
@@ -174,6 +180,29 @@ class TestGenerationServiceTest {
         assertThat(response.savedCount()).isEqualTo(1);
         assertThat(response.savedTestCaseIds()).containsExactly(501L);
         verify(testCaseRepository, times(1)).save(any(TestCase.class));
+    }
+
+    @Test
+    void saveDraftsReturnsInventoryIdsAsSelectedApiIdsWhenDraftIsInventoryBacked() {
+        App generationApp = app(1L);
+        TestGeneration generation = generation(77L, generationApp);
+        ApiEndpoint endpoint = endpoint(10L, generationApp);
+        ApiInventory inventory = inventory(2248L);
+        GeneratedTestCaseDraft draft = draft(1001L, generation, endpoint, inventory);
+
+        when(testGenerationRepository.findById(77L)).thenReturn(Optional.of(generation));
+        when(draftRepository.findByGenerationIdAndIdIn(77L, List.of(1001L))).thenReturn(List.of(draft));
+        when(testCaseRepository.save(any(TestCase.class))).thenAnswer(invocation -> {
+            TestCase testCase = invocation.getArgument(0);
+            ReflectionTestUtils.setField(testCase, "id", 501L);
+            return testCase;
+        });
+
+        var response = service().saveDrafts(77L, saveDraftsRequest(null));
+
+        assertThat(response.apiIds()).containsExactly(2248L);
+        assertThat(response.apiInventoryIds()).containsExactly(2248L);
+        assertThat(response.apiEndpointIds()).containsExactly(10L);
     }
 
     @Test
@@ -374,6 +403,29 @@ class TestGenerationServiceTest {
         return draft;
     }
 
+    private GeneratedTestCaseDraft draft(Long id, TestGeneration generation, ApiEndpoint endpoint, ApiInventory inventory) {
+        GeneratedTestCaseDraft draft = GeneratedTestCaseDraft.builder()
+                .generation(generation)
+                .apiEndpoint(endpoint)
+                .apiInventory(inventory)
+                .title("Order creation succeeds")
+                .description("Verifies order creation.")
+                .type("HAPPY_PATH")
+                .riskLevel("SMOKE")
+                .userRole("CUSTOMER")
+                .stateCondition("Signed in")
+                .dataVariant("single product")
+                .requestSpec("{\"body\":{\"productId\":1}}")
+                .expectedSpec("{\"status\":201}")
+                .assertionSpec("{\"assertions\":[\"status == 201\"]}")
+                .duplicate(false)
+                .selectedForSave(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+        ReflectionTestUtils.setField(draft, "id", id);
+        return draft;
+    }
+
     private AiGeneratedDraftCommand command(Long apiId, String title, boolean duplicate) {
         return new AiGeneratedDraftCommand(
                 apiId,
@@ -406,5 +458,26 @@ class TestGenerationServiceTest {
                 .active(true)
                 .version(1)
                 .build();
+    }
+
+    private ApiInventory inventory(Long id) {
+        Project project = Project.builder()
+                .name("Shop")
+                .slug("shop")
+                .status(ProjectStatus.ACTIVE)
+                .build();
+        ReflectionTestUtils.setField(project, "id", 1L);
+        ApiInventory inventory = ApiInventory.builder()
+                .project(project)
+                .method(ApiHttpMethod.POST)
+                .endpointPath("/orders")
+                .operationId("createOrder")
+                .domainTag("orders")
+                .sourceType(ApiInventorySource.OPENAPI)
+                .status(ApiInventoryStatus.ACTIVE)
+                .authRequired(false)
+                .build();
+        ReflectionTestUtils.setField(inventory, "id", id);
+        return inventory;
     }
 }

@@ -11,6 +11,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
 import flowops.api.repository.ApiEndpointRepository;
+import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiHttpMethod;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.domain.entity.ApiInventorySource;
+import flowops.apiinventory.domain.entity.ApiInventoryStatus;
+import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.integration.ai.AiAgentContracts.OrchestratorAgentResultPayload;
@@ -40,6 +46,12 @@ class OrchestratorChatResponseNormalizerTest {
 
     @Mock
     private ApiEndpointRepository apiEndpointRepository;
+
+    @Mock
+    private ApiEndpointService apiEndpointService;
+
+    @Mock
+    private ApiInventoryRepository apiInventoryRepository;
 
     @Mock
     private TestGenerationRepository testGenerationRepository;
@@ -240,6 +252,71 @@ class OrchestratorChatResponseNormalizerTest {
     }
 
     @Test
+    void normalizeResolvesNumericApiIdAsInventoryIdAndReturnsInventoryMetadata() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/mates/chat");
+        ApiInventory inventory = inventory(2248L, "/mates/chat");
+        JsonNode context = objectMapper.readTree("""
+                {
+                  "api_inventory": {
+                    "project_id": "1",
+                    "endpoints": [
+                      {"endpoint_id": "2248", "method": "POST", "path": "/mates/chat"}
+                    ]
+                  }
+                }
+                """);
+        JsonNode agentData = objectMapper.readTree("""
+                {
+                  "drafts": [
+                    {
+                      "apiId": "2248",
+                      "title": "Mate chat succeeds",
+                      "type": "HAPPY_PATH"
+                    }
+                  ]
+                }
+                """);
+        OrchestratorChatRequest request = new OrchestratorChatRequest("3", "chat tests", context);
+        OrchestratorChatResponse response = new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, agentData, null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-6"
+        );
+
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findById(2248L)).thenReturn(Optional.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
+            TestGeneration generation = invocation.getArgument(0);
+            ReflectionTestUtils.setField(generation, "id", 90L);
+            return generation;
+        });
+        when(draftRepository.save(any(GeneratedTestCaseDraft.class))).thenAnswer(invocation -> {
+            GeneratedTestCaseDraft draft = invocation.getArgument(0);
+            ReflectionTestUtils.setField(draft, "id", 2003L);
+            return draft;
+        });
+
+        OrchestratorChatResponse normalized = service().normalize(request, response);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiId").asLong()).isEqualTo(2248L);
+        assertThat(draft.path("apiInventoryId").asLong()).isEqualTo(2248L);
+        assertThat(draft.path("apiEndpointId").asLong()).isEqualTo(2056L);
+        assertThat(draft.path("endpointId").asText()).isEqualTo("POST:/mates/chat");
+        assertThat(draft.path("selectedEndpoint").path("id").asLong()).isEqualTo(2248L);
+        assertThat(draft.path("selectedEndpoint").path("apiInventoryId").asLong()).isEqualTo(2248L);
+        assertThat(draft.path("selectedEndpoint").path("apiEndpointId").asLong()).isEqualTo(2056L);
+    }
+
+    @Test
     void normalizeReturnsOriginalResponseWithoutSavingWhenDraftEndpointCannotBeResolved() throws Exception {
         App app = app(1L);
         JsonNode agentData = objectMapper.readTree("""
@@ -315,6 +392,8 @@ class OrchestratorChatResponseNormalizerTest {
         return new OrchestratorChatResponseNormalizer(
                 appService,
                 apiEndpointRepository,
+                apiEndpointService,
+                apiInventoryRepository,
                 testGenerationRepository,
                 selectionRepository,
                 draftRepository,
@@ -343,5 +422,19 @@ class OrchestratorChatResponseNormalizerTest {
                 .build();
         ReflectionTestUtils.setField(endpoint, "id", id);
         return endpoint;
+    }
+
+    private ApiInventory inventory(Long id, String path) {
+        ApiInventory inventory = ApiInventory.builder()
+                .method(ApiHttpMethod.POST)
+                .endpointPath(path)
+                .operationId("mateChat")
+                .domainTag("MATE")
+                .sourceType(ApiInventorySource.OPENAPI)
+                .status(ApiInventoryStatus.ACTIVE)
+                .authRequired(false)
+                .build();
+        ReflectionTestUtils.setField(inventory, "id", id);
+        return inventory;
     }
 }

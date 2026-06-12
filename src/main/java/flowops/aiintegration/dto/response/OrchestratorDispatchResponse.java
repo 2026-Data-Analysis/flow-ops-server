@@ -1,6 +1,7 @@
 package flowops.aiintegration.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import flowops.testgeneration.dto.response.GeneratedTestCaseDraftResponse;
 import java.util.List;
 
@@ -45,6 +46,36 @@ public record OrchestratorDispatchResponse(
     public record TestCaseAgentData(
             Long generationId,
             List<GeneratedTestCaseDraftResponse> drafts
+    ) {
+    }
+
+    public record ScenarioAgentData(
+            List<ScenarioResult> scenarios,
+            @JsonProperty("used_endpoint_ids") List<String> usedEndpointIds
+    ) {
+    }
+
+    public record ScenarioResult(
+            @JsonProperty("scenario_id") String scenarioId,
+            String name,
+            String description,
+            String type,
+            @JsonProperty("test_level") String testLevel,
+            List<ScenarioStepResult> steps,
+            JsonNode meta
+    ) {
+    }
+
+    public record ScenarioStepResult(
+            @JsonProperty("endpoint_id") String endpointId,
+            String name,
+            JsonNode payload,
+            JsonNode params,
+            @JsonProperty("expected_status_code") Integer expectedStatusCode,
+            @JsonProperty("expected_assertions") List<String> expectedAssertions,
+            JsonNode requestSpec,
+            JsonNode expectedSpec,
+            JsonNode assertionSpec
     ) {
     }
 }

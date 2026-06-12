@@ -9,6 +9,8 @@ import flowops.apiinventory.domain.entity.ApiInventory;
 import flowops.apiinventory.domain.entity.ApiInventorySource;
 import flowops.apiinventory.domain.entity.ApiInventoryStatus;
 import flowops.app.domain.entity.App;
+import flowops.project.domain.entity.Project;
+import flowops.project.domain.entity.ProjectStatus;
 import flowops.testgeneration.domain.entity.GeneratedTestCaseDraft;
 import flowops.testgeneration.domain.entity.TestGeneration;
 import flowops.testgeneration.domain.entity.TestGenerationStatus;
@@ -61,15 +63,22 @@ class GeneratedTestCaseDraftResponseTest {
     }
 
     @Test
-    void fromUsesEndpointIdEvenWhenDraftHasInventory() {
+    void fromUsesInventoryIdWhenDraftHasInventoryAndKeepsEndpointMetadata() {
         GeneratedTestCaseDraft draft = draft("""
                 {"productId":1,"quantity":2}
                 """, true);
 
         GeneratedTestCaseDraftResponse response = GeneratedTestCaseDraftResponse.from(draft);
 
-        assertThat(response.apiId()).isEqualTo(2056L);
-        assertThat(response.selectedEndpoint().id()).isEqualTo(2056L);
+        assertThat(response.apiId()).isEqualTo(2241L);
+        assertThat(response.projectId()).isEqualTo(1L);
+        assertThat(response.apiInventoryId()).isEqualTo(2241L);
+        assertThat(response.apiEndpointId()).isEqualTo(2056L);
+        assertThat(response.endpointId()).isEqualTo("POST:/orders");
+        assertThat(response.selectedEndpoint().id()).isEqualTo(2241L);
+        assertThat(response.selectedEndpoint().projectId()).isEqualTo(1L);
+        assertThat(response.selectedEndpoint().apiInventoryId()).isEqualTo(2241L);
+        assertThat(response.selectedEndpoint().apiEndpointId()).isEqualTo(2056L);
     }
 
     private GeneratedTestCaseDraft draft(String requestSpec) {
@@ -95,7 +104,14 @@ class GeneratedTestCaseDraftResponseTest {
 
         ApiInventory inventory = null;
         if (withInventory) {
+            Project project = Project.builder()
+                    .name("Shop")
+                    .slug("shop")
+                    .status(ProjectStatus.ACTIVE)
+                    .build();
+            ReflectionTestUtils.setField(project, "id", 1L);
             inventory = ApiInventory.builder()
+                    .project(project)
                     .method(ApiHttpMethod.POST)
                     .endpointPath("/orders")
                     .operationId("createOrder")

@@ -137,6 +137,8 @@ public class TestGenerationService {
 
         List<Long> savedTestCaseIds = new ArrayList<>();
         LinkedHashSet<Long> apiIds = new LinkedHashSet<>();
+        LinkedHashSet<Long> apiInventoryIds = new LinkedHashSet<>();
+        LinkedHashSet<Long> apiEndpointIds = new LinkedHashSet<>();
         for (GeneratedTestCaseDraft draft : drafts) {
             validateDraftApp(generationApp, draft);
             if (draft.isDuplicate()) {
@@ -163,9 +165,22 @@ public class TestGenerationService {
                     .version(1)
                     .build());
             savedTestCaseIds.add(savedTestCase.getId());
-            apiIds.add(savedTestCase.getApiEndpoint().getId());
+            Long endpointId = savedTestCase.getApiEndpoint().getId();
+            Long inventoryId = savedTestCase.getApiInventory() == null ? null : savedTestCase.getApiInventory().getId();
+            apiIds.add(inventoryId == null ? endpointId : inventoryId);
+            if (inventoryId != null) {
+                apiInventoryIds.add(inventoryId);
+            }
+            apiEndpointIds.add(endpointId);
         }
-        return new SaveGeneratedDraftsResponse(generationId, savedTestCaseIds.size(), savedTestCaseIds, List.copyOf(apiIds));
+        return new SaveGeneratedDraftsResponse(
+                generationId,
+                savedTestCaseIds.size(),
+                savedTestCaseIds,
+                List.copyOf(apiIds),
+                List.copyOf(apiInventoryIds),
+                List.copyOf(apiEndpointIds)
+        );
     }
 
     private void validateRequestedApp(App generationApp, Long requestedAppId) {

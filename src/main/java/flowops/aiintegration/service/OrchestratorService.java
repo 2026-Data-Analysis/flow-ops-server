@@ -10,6 +10,9 @@ import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.AgentResu
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.IncidentAgentData;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.IncidentAgentData.RootCause;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.OrchestratorDispatchData;
+import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.ScenarioAgentData;
+import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.ScenarioResult;
+import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.ScenarioStepResult;
 import flowops.aiintegration.dto.response.OrchestratorDispatchResponse.TestCaseAgentData;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
@@ -20,6 +23,10 @@ import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.ErrorReportRequest;
 import flowops.integration.ai.AiAgentContracts.ErrorReportResponse;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeDataPayload;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeRequest;
+import flowops.integration.ai.AiAgentContracts.IncidentAnalyzeResponse;
+import flowops.integration.ai.AiAgentContracts.IncidentRootCausePayload;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisRequest;
 import flowops.integration.ai.AiAgentContracts.LogAnalysisResponse;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
@@ -32,6 +39,9 @@ import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
+import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
@@ -80,6 +90,10 @@ public class OrchestratorService {
         String traceId = UUID.randomUUID().toString();
         JsonNode ctx = request.context();
 
+        if (usesPromptAwareRouting()) {
+            return dispatchByPromptAndContext(request, traceId, ctx);
+        }
+
         try {
             if (ctx != null && ctx.has("service_name")) {
                 return dispatchIncident(request, traceId);
@@ -96,12 +110,97 @@ public class OrchestratorService {
         }
     }
 
+    private boolean usesPromptAwareRouting() {
+        return true;
+    }
+
+    private OrchestratorDispatchResponse dispatchByPromptAndContext(
+            OrchestratorDispatchRequest request,
+            String traceId,
+            JsonNode ctx
+    ) {
+        String projectId = request.projectId();
+        String prompt = request.userPrompt();
+        try {
+            if (hasText(ctx, "raw_log")) {
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=incident, reason=raw_log_present", projectId);
+                return dispatchIncident(request, traceId);
+            }
+            if (promptLooksLikeIncident(prompt)) {
+                if (!hasText(ctx, "raw_log")) {
+                    return error(traceId, "MISSING_RAW_LOG", "로그 분석을 위해 raw_log가 필요합니다.");
+                }
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=incident, reason=incident_prompt", projectId);
+                return dispatchIncident(request, traceId);
+            }
+            if (promptLooksLikeScenario(prompt)) {
+                if (!hasObject(ctx, "api_inventory")) {
+                    return error(traceId, "MISSING_API_INVENTORY", "시나리오 생성을 위해 api_inventory가 필요합니다.");
+                }
+                if (inventoryEndpoints(ctx).isEmpty()) {
+                    return error(traceId, "EMPTY_API_INVENTORY", "api_inventory.endpoints가 비어 있어 시나리오를 생성할 수 없습니다.");
+                }
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=scenario, reason=scenario_prompt_with_api_inventory", projectId);
+                return dispatchScenario(request, traceId);
+            }
+            if (hasObject(ctx, "api_inventory") && promptLooksLikeTestcase(prompt)) {
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=testcase, reason=testcase_prompt_with_api_inventory", projectId);
+                return dispatchTestCase(request, traceId);
+            }
+            if (ctx != null && (ctx.has("base_url") || ctx.has("env_name"))) {
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=testcase, reason=environment_context", projectId);
+                return dispatchTestCase(request, traceId);
+            }
+            if (hasObject(ctx, "api_inventory")) {
+                log.info("Orchestrator dispatch selected. projectId={}, agentType=testcase, reason=api_inventory_default", projectId);
+                return dispatchTestCase(request, traceId);
+            }
+            return error(traceId, "INVALID_CONTEXT", "context 필드에 raw_log 또는 api_inventory가 필요합니다.");
+        } catch (Exception e) {
+            log.error("Orchestrator dispatch failed. traceId={}", traceId, e);
+            return error(traceId, "AGENT_ERROR", e.getMessage());
+        }
+    }
+
     private OrchestratorDispatchResponse dispatchIncident(OrchestratorDispatchRequest request, String traceId) {
         JsonNode ctx = request.context();
         String serviceName = textOrNull(ctx, "service_name");
         String occurredAt = textOrNull(ctx, "occurred_at");
         String rawLog = textOrNull(ctx, "raw_log");
         String projectId = request.projectId() != null ? request.projectId() : "unknown";
+
+        if (usesPromptAwareRouting()) {
+            IncidentAnalyzeResponse response = aiClient.analyzeIncident(new IncidentAnalyzeRequest(
+                    projectId,
+                    serviceName,
+                    occurredAt,
+                    rawLog,
+                    null,
+                    null
+            ));
+            IncidentAgentData agentData = normalizeIncidentData(response == null ? null : response.data());
+            boolean success = response == null || response.success();
+            int rootCauseCount = agentData.rootCauses() == null ? 0 : agentData.rootCauses().size();
+            log.info("Incident agent returned. success={}, rootCauseCount={}, traceId={}",
+                    success,
+                    rootCauseCount,
+                    response == null ? traceId : response.trace_id());
+
+            List<AgentResult> results = List.of(new AgentResult(
+                    "incident",
+                    success,
+                    success ? agentData : null,
+                    success ? null : response == null ? "Incident agent returned no response." : response.error_message()
+            ));
+            String summary = success ? incidentSummary(agentData) : response.error_message();
+            return new OrchestratorDispatchResponse(
+                    success,
+                    new OrchestratorDispatchData(List.of("incident"), results, summary),
+                    success ? null : response == null ? "INCIDENT_AGENT_ERROR" : response.error_code(),
+                    success ? null : response == null ? "Incident agent returned no response." : response.error_message(),
+                    traceId
+            );
+        }
 
         LogAnalysisRequest logReq = new LogAnalysisRequest(
                 "log-analyzer",
@@ -451,13 +550,40 @@ public class OrchestratorService {
                 "NATURAL_LANGUAGE".equals(mode) ? firstText(ctx, "user_intent", request.userPrompt()) : null,
                 new ScenarioApiInventoryPayload(projectId, endpoints),
                 environmentPayload(ctx),
-                "RECOMMEND".equals(mode) ? List.of() : null,
-                existingScenarioSummaries(request.projectId()),
-                intOrNull(ctx, "max_scenarios"),
+                scenarioExistingTestCases(ctx),
+                existingScenarioSummariesFromContext(ctx, request.projectId()),
+                intOrDefault(ctx, "max_scenarios", 3),
                 intOrNull(ctx, "max_steps_per_scenario")
         );
 
         ScenarioGenerateResponse res = aiClient.buildScenario(aiReq);
+
+        if (usesPromptAwareRouting()) {
+            boolean success = res == null || res.success() == null || res.success();
+            ScenarioAgentData agentData = success ? normalizeScenarioData(res == null ? null : res.data()) : null;
+            int scenarioCount = agentData == null || agentData.scenarios() == null ? 0 : agentData.scenarios().size();
+            int usedEndpointCount = agentData == null || agentData.usedEndpointIds() == null ? 0 : agentData.usedEndpointIds().size();
+            log.info("Scenario agent returned. success={}, scenarioCount={}, usedEndpointCount={}, traceId={}",
+                    success,
+                    scenarioCount,
+                    usedEndpointCount,
+                    res == null ? traceId : res.trace_id());
+
+            List<AgentResult> results = List.of(new AgentResult(
+                    "scenario",
+                    success,
+                    agentData,
+                    success ? null : res == null ? "Scenario agent returned no response." : res.error_message()
+            ));
+            return new OrchestratorDispatchResponse(
+                    success,
+                    new OrchestratorDispatchData(List.of("scenario"), results,
+                            success ? scenarioSummary(agentData) : res == null ? "시나리오 생성에 실패했습니다." : res.error_message()),
+                    success ? null : res == null ? "SCENARIO_AGENT_ERROR" : res.error_code(),
+                    success ? null : res == null ? "Scenario agent returned no response." : res.error_message(),
+                    traceId
+            );
+        }
 
         List<AgentResult> results = List.of(new AgentResult("scenario", true, res != null ? res.data() : null, null));
         int count = res != null && res.data() != null && res.data().scenarios() != null
@@ -497,6 +623,222 @@ public class OrchestratorService {
                 environment != null && environment.has("authConfig") ? environment.get("authConfig") : ctx == null ? null : ctx.get("auth_config"),
                 environment != null && environment.has("headers") ? environment.get("headers") : ctx == null ? null : ctx.get("headers")
         );
+    }
+
+    private IncidentAgentData normalizeIncidentData(IncidentAnalyzeDataPayload data) {
+        try {
+            List<RootCause> rootCauses = data == null || data.root_causes() == null
+                    ? List.of()
+                    : data.root_causes().stream()
+                    .map(this::toRootCause)
+                    .toList();
+            return new IncidentAgentData(
+                    rootCauses,
+                    data == null ? null : data.internal_report(),
+                    data == null ? null : data.external_notice()
+            );
+        } catch (Exception exception) {
+            log.warn("Failed to normalize orchestrator incident result. error={}", exception.getMessage());
+            return new IncidentAgentData(List.of(), null, null);
+        }
+    }
+
+    private RootCause toRootCause(IncidentRootCausePayload cause) {
+        return new RootCause(
+                cause == null ? null : cause.summary(),
+                cause == null || cause.evidence() == null ? List.of() : cause.evidence(),
+                cause == null ? null : cause.severity(),
+                cause == null ? null : cause.suggested_fix()
+        );
+    }
+
+    private String incidentSummary(IncidentAgentData data) {
+        List<RootCause> causes = data == null || data.rootCauses() == null ? List.of() : data.rootCauses();
+        if (causes.isEmpty()) {
+            return "⚠️ [장애 원인 분석] 완료 — 명확한 원인 후보를 찾지 못했습니다.";
+        }
+        String mainCause = causes.get(0).summary() == null ? "" : causes.get(0).summary();
+        return "✅ [장애 원인 분석] 완료 — 원인 후보 %d건 도출 — 주요 원인: %s"
+                .formatted(causes.size(), mainCause);
+    }
+
+    private ScenarioAgentData normalizeScenarioData(flowops.integration.ai.AiAgentContracts.ScenarioGenerateDataPayload data) {
+        try {
+            List<ScenarioResult> scenarios = data == null || data.scenarios() == null
+                    ? List.of()
+                    : data.scenarios().stream().map(this::normalizeScenario).toList();
+            List<String> usedEndpointIds = data == null || data.used_endpoint_ids() == null
+                    ? scenarios.stream()
+                    .flatMap(scenario -> scenario.steps().stream())
+                    .map(ScenarioStepResult::endpointId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList()
+                    : data.used_endpoint_ids();
+            return new ScenarioAgentData(scenarios, usedEndpointIds);
+        } catch (Exception exception) {
+            log.warn("Failed to normalize orchestrator scenario result. error={}", exception.getMessage());
+            return new ScenarioAgentData(List.of(), List.of());
+        }
+    }
+
+    private ScenarioResult normalizeScenario(ScenarioPayload scenario) {
+        List<ScenarioStepResult> steps = scenario.steps() == null
+                ? List.of()
+                : scenario.steps().stream().map(this::normalizeScenarioStep).toList();
+        JsonNode meta = scenario.meta() == null ? objectMapper.nullNode() : objectMapper.valueToTree(scenario.meta());
+        return new ScenarioResult(
+                scenario.scenario_id(),
+                scenario.name(),
+                scenario.description(),
+                scenario.type(),
+                scenario.test_level(),
+                steps,
+                meta
+        );
+    }
+
+    private ScenarioStepResult normalizeScenarioStep(ScenarioStepPayload step) {
+        JsonNode requestSpec = step.requestSpec();
+        JsonNode expectedSpec = step.expectedSpec();
+        String endpointId = firstNonBlank(step.endpoint_id(), step.apiId());
+        String name = firstNonBlank(step.name(), step.title());
+        JsonNode payload = step.static_payload() != null && !step.static_payload().isNull()
+                ? step.static_payload()
+                : child(requestSpec, "body");
+        JsonNode params = step.static_params() != null && !step.static_params().isNull()
+                ? step.static_params()
+                : mergedParams(requestSpec);
+        Integer expectedStatusCode = step.expected_status_code() != null
+                ? step.expected_status_code()
+                : intFrom(expectedSpec, "statusCode", "status", "expectedStatusCode", "expected_status_code");
+        return new ScenarioStepResult(
+                endpointId,
+                name,
+                payload == null ? objectMapper.nullNode() : payload,
+                params == null ? objectMapper.nullNode() : params,
+                expectedStatusCode,
+                step.expected_assertions() == null ? List.of() : step.expected_assertions(),
+                requestSpec,
+                expectedSpec,
+                step.assertionSpec()
+        );
+    }
+
+    private String scenarioSummary(ScenarioAgentData data) {
+        int scenarioCount = data == null || data.scenarios() == null ? 0 : data.scenarios().size();
+        if (scenarioCount == 0) {
+            return "⚠️ [시나리오(E2E) 테스트 생성] 완료 — 생성된 시나리오가 없습니다.";
+        }
+        int usedEndpointCount = data.usedEndpointIds() == null ? 0 : data.usedEndpointIds().size();
+        return "✅ [시나리오(E2E) 테스트 생성] 완료 — %d개 시나리오 생성됨 (사용 API %d개)"
+                .formatted(scenarioCount, usedEndpointCount);
+    }
+
+    private List<ScenarioExistingTestCasePayload> scenarioExistingTestCases(JsonNode ctx) {
+        JsonNode node = ctx == null ? null : ctx.get("existing_test_cases");
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<ScenarioExistingTestCasePayload> values = new ArrayList<>();
+        node.forEach(item -> values.add(objectMapper.convertValue(item, ScenarioExistingTestCasePayload.class)));
+        return values;
+    }
+
+    private List<ExistingScenarioSummary> existingScenarioSummariesFromContext(JsonNode ctx, String projectId) {
+        JsonNode node = ctx == null ? null : ctx.get("existing_scenarios");
+        if (node != null && node.isArray()) {
+            List<ExistingScenarioSummary> values = new ArrayList<>();
+            node.forEach(item -> values.add(objectMapper.convertValue(item, ExistingScenarioSummary.class)));
+            return values;
+        }
+        return existingScenarioSummaries(projectId);
+    }
+
+    private JsonNode inventoryEndpoints(JsonNode ctx) {
+        JsonNode inventory = ctx == null ? null : ctx.get("api_inventory");
+        JsonNode endpoints = inventory == null ? null : inventory.get("endpoints");
+        return endpoints != null && endpoints.isArray() ? endpoints : objectMapper.createArrayNode();
+    }
+
+    private boolean hasObject(JsonNode node, String field) {
+        return node != null && node.has(field) && node.get(field).isObject();
+    }
+
+    private boolean hasText(JsonNode node, String field) {
+        String value = textOrNull(node, field);
+        return value != null && !value.isBlank();
+    }
+
+    private boolean promptLooksLikeIncident(String prompt) {
+        String value = normalizedPrompt(prompt).replace("로그인", "");
+        return containsAny(value, "로그 분석", "장애 분석", "에러 분석", "원인 분석", "incident", "장애", "로그", "에러", "exception", "error");
+    }
+
+    private boolean promptLooksLikeScenario(String prompt) {
+        String value = normalizedPrompt(prompt);
+        return containsAny(value, "시나리오", "e2e", "end-to-end", "흐름", "사용자 여정", "회원가입 후 로그인", "주문 흐름");
+    }
+
+    private boolean promptLooksLikeTestcase(String prompt) {
+        String value = normalizedPrompt(prompt);
+        return containsAny(value, "테스트케이스", "테스트 케이스", "testcase", "test case", "단건", "api 테스트");
+    }
+
+    private boolean containsAny(String value, String... needles) {
+        for (String needle : needles) {
+            if (value.contains(needle.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizedPrompt(String prompt) {
+        return prompt == null ? "" : prompt.toLowerCase();
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first == null || first.isBlank() ? second : first;
+    }
+
+    private JsonNode child(JsonNode node, String field) {
+        return node == null || !node.has(field) ? null : node.get(field);
+    }
+
+    private JsonNode mergedParams(JsonNode requestSpec) {
+        ObjectNode merged = objectMapper.createObjectNode();
+        copyObjectFields(merged, child(requestSpec, "pathParams"));
+        copyObjectFields(merged, child(requestSpec, "pathParameters"));
+        copyObjectFields(merged, child(requestSpec, "path_params"));
+        copyObjectFields(merged, child(requestSpec, "queryParams"));
+        copyObjectFields(merged, child(requestSpec, "queryParameters"));
+        copyObjectFields(merged, child(requestSpec, "query_params"));
+        return merged.isEmpty() ? objectMapper.nullNode() : merged;
+    }
+
+    private void copyObjectFields(ObjectNode target, JsonNode source) {
+        if (source != null && source.isObject()) {
+            source.fields().forEachRemaining(entry -> target.set(entry.getKey(), entry.getValue()));
+        }
+    }
+
+    private Integer intFrom(JsonNode node, String... fields) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.canConvertToInt()) {
+                return value.asInt();
+            }
+        }
+        return null;
+    }
+
+    private Integer intOrDefault(JsonNode node, String field, int fallback) {
+        Integer value = intOrNull(node, field);
+        return value == null ? fallback : value;
     }
 
     private List<RootCause> buildRootCauses(LogAnalysisResponse logRes, ErrorReportResponse reportRes) {

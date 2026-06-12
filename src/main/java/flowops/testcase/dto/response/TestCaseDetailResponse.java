@@ -9,56 +9,75 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 
 public record TestCaseDetailResponse(
-        @Schema(description = "테스트 케이스 ID", example = "501")
+        @Schema(description = "Test case ID", example = "501")
         Long id,
-        @Schema(description = "앱 ID", example = "1")
+        @Schema(description = "App ID", example = "1")
         Long appId,
-        @Schema(description = "API ID", example = "10")
+        @Schema(description = "Selected API ID. Inventory ID when available, otherwise endpoint PK.", example = "2248")
         Long apiId,
-        @Schema(description = "테스트 케이스 이름", example = "결제 승인 정상 흐름")
+        @Schema(description = "Project ID for inventory detail lookup.", example = "1")
+        Long projectId,
+        @Schema(description = "API inventory ID. Use with /projects/{projectId}/api-inventories/{inventoryId}.", example = "2248")
+        Long apiInventoryId,
+        @Schema(description = "Legacy API endpoint PK.", example = "10")
+        Long apiEndpointId,
+        @Schema(description = "Stable endpoint key in METHOD:/path format.", example = "POST:/orders")
+        String endpointId,
+        @Schema(description = "Test case name", example = "Order creation succeeds")
         String name,
-        @Schema(description = "실제로 실행할 HTTP 메서드", example = "GET")
+        @Schema(description = "HTTP method used for execution.", example = "GET")
         String executionMethod,
-        @Schema(description = "실제로 실행할 엔드포인트", example = "/apps//scenarios")
+        @Schema(description = "Endpoint path used for execution.", example = "/orders")
         String executionEndpoint,
-        @Schema(description = "설명", example = "유효한 카드 정보로 결제 승인 요청 시 200 응답을 검증합니다.")
+        @Schema(description = "Description", example = "Verifies order creation succeeds.")
         String description,
-        @Schema(description = "테스트 유형", example = "HAPPY_PATH")
+        @Schema(description = "Test case type", example = "HAPPY_PATH")
         TestCaseType type,
-        @Schema(description = "테스트 레벨", example = "REGRESSION")
+        @Schema(description = "Test level", example = "REGRESSION")
         TestLevel testLevel,
-        @Schema(description = "생성 소스", example = "EDITED")
+        @Schema(description = "Source", example = "EDITED")
         TestCaseSource source,
-        @Schema(description = "사용자 역할", example = "CUSTOMER")
+        @Schema(description = "User role", example = "CUSTOMER")
         String userRole,
-        @Schema(description = "상태 조건", example = "로그인된 사용자")
+        @Schema(description = "State condition", example = "Signed in")
         String stateCondition,
-        @Schema(description = "데이터 변형", example = "valid-card")
+        @Schema(description = "Data variant", example = "valid-card")
         String dataVariant,
-        @Schema(description = "요청 명세", example = "{\"amount\":10000,\"currency\":\"KRW\"}")
+        @Schema(description = "Request spec", example = "{\"amount\":10000,\"currency\":\"KRW\"}")
         String requestSpec,
-        @Schema(description = "기대 명세", example = "{\"status\":200,\"approved\":true}")
+        @Schema(description = "Expected spec", example = "{\"status\":200,\"approved\":true}")
         String expectedSpec,
-        @Schema(description = "검증 명세", example = "{\"assertions\":[\"status == 200\",\"approved == true\"]}")
+        @Schema(description = "Assertion spec", example = "{\"assertions\":[\"status == 200\"]}")
         String assertionSpec,
-        @Schema(description = "활성 여부", example = "true")
+        @Schema(description = "Active flag", example = "true")
         boolean active,
-        @Schema(description = "현재 버전", example = "3")
+        @Schema(description = "Current version", example = "3")
         Integer version,
-        @Schema(description = "생성 일시", example = "2026-04-10T10:00:00")
+        @Schema(description = "Created timestamp", example = "2026-04-10T10:00:00")
         LocalDateTime createdAt,
-        @Schema(description = "수정 일시", example = "2026-04-12T02:30:00")
+        @Schema(description = "Updated timestamp", example = "2026-04-12T02:30:00")
         LocalDateTime updatedAt
 ) {
 
     public static TestCaseDetailResponse from(TestCase testCase) {
+        Long apiInventoryId = testCase.getApiInventory() == null ? null : testCase.getApiInventory().getId();
+        Long apiEndpointId = testCase.getApiEndpoint().getId();
+        Long projectId = testCase.getApiInventory() == null || testCase.getApiInventory().getProject() == null
+                ? null
+                : testCase.getApiInventory().getProject().getId();
+        String executionMethod = executionMethod(testCase);
+        String executionEndpoint = executionEndpoint(testCase);
         return new TestCaseDetailResponse(
                 testCase.getId(),
                 testCase.getApp().getId(),
-                testCase.getApiInventory() == null ? testCase.getApiEndpoint().getId() : testCase.getApiInventory().getId(),
+                apiInventoryId == null ? apiEndpointId : apiInventoryId,
+                projectId,
+                apiInventoryId,
+                apiEndpointId,
+                executionMethod + ":" + executionEndpoint,
                 testCase.getName(),
-                executionMethod(testCase),
-                executionEndpoint(testCase),
+                executionMethod,
+                executionEndpoint,
                 testCase.getDescription(),
                 testCase.getType(),
                 testCase.getTestLevel(),

@@ -9,49 +9,70 @@ import flowops.testcase.domain.entity.TestLevel;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 public record TestCaseSummaryResponse(
-        @Schema(description = "테스트 케이스 ID", example = "501")
+        @Schema(description = "Test case ID", example = "501")
         Long id,
-        @Schema(description = "API ID", example = "101")
+        @Schema(description = "Selected API ID. Inventory ID when available, otherwise endpoint PK.", example = "2248")
         Long apiId,
-        @Schema(description = "테스트 케이스 이름", example = "결제 승인 정상 흐름")
+        @Schema(description = "Project ID for inventory detail lookup.", example = "1")
+        Long projectId,
+        @Schema(description = "API inventory ID. Use with /projects/{projectId}/api-inventories/{inventoryId}.", example = "2248")
+        Long apiInventoryId,
+        @Schema(description = "Legacy API endpoint PK.", example = "101")
+        Long apiEndpointId,
+        @Schema(description = "Stable endpoint key in METHOD:/path format.", example = "POST:/orders")
+        String endpointId,
+        @Schema(description = "Test case name", example = "Order creation succeeds")
         String name,
-        @Schema(description = "실제로 실행할 HTTP 메서드", example = "GET")
+        @Schema(description = "HTTP method used for execution.", example = "GET")
         String executionMethod,
-        @Schema(description = "실제로 실행할 엔드포인트", example = "/apps//scenarios")
+        @Schema(description = "Endpoint path used for execution.", example = "/orders")
         String executionEndpoint,
-        @Schema(description = "테스트케이스 유형", example = "HAPPY_PATH")
+        @Schema(description = "Test case type", example = "HAPPY_PATH")
         TestCaseType type,
-        @Schema(description = "테스트 레벨", example = "SMOKE")
+        @Schema(description = "Test level", example = "SMOKE")
         TestLevel testLevel,
-        @Schema(description = "설명")
+        @Schema(description = "Description")
         String description,
-        @Schema(description = "기대 결과 명세")
+        @Schema(description = "Expected result spec")
         String expectedSpec,
-        @Schema(description = "요청 명세")
+        @Schema(description = "Request spec")
         String requestSpec,
-        @Schema(description = "검증 명세")
+        @Schema(description = "Assertion spec")
         String assertionSpec,
-        @Schema(description = "사용자 역할")
+        @Schema(description = "User role")
         String userRole,
-        @Schema(description = "상태 조건")
+        @Schema(description = "State condition")
         String stateCondition,
-        @Schema(description = "데이터 변형 조건")
+        @Schema(description = "Data variant")
         String dataVariant,
-        @Schema(description = "활성 여부", example = "true")
+        @Schema(description = "Active flag", example = "true")
         boolean active,
-        @Schema(description = "현재 버전", example = "3")
+        @Schema(description = "Current version", example = "3")
         Integer version,
-        @Schema(description = "목록 조회 기준으로 선택된 엔드포인트")
+        @Schema(description = "Selected endpoint metadata for the list query.")
         SelectedEndpointResponse selectedEndpoint
 ) {
 
     public static TestCaseSummaryResponse from(TestCase testCase, ApiEndpoint selectedEndpoint) {
+        Long apiInventoryId = testCase.getApiInventory() == null ? null : testCase.getApiInventory().getId();
+        Long apiEndpointId = testCase.getApiEndpoint().getId();
+        Long projectId = testCase.getApiInventory() == null || testCase.getApiInventory().getProject() == null
+                ? null
+                : testCase.getApiInventory().getProject().getId();
+        String executionMethod = executionMethod(testCase);
+        String executionEndpoint = executionEndpoint(testCase);
+        String endpointId = executionMethod + ":" + executionEndpoint;
+        Long selectedId = apiInventoryId == null ? apiEndpointId : apiInventoryId;
         return new TestCaseSummaryResponse(
                 testCase.getId(),
-                testCase.getApiInventory() == null ? testCase.getApiEndpoint().getId() : testCase.getApiInventory().getId(),
+                selectedId,
+                projectId,
+                apiInventoryId,
+                apiEndpointId,
+                endpointId,
                 testCase.getName(),
-                executionMethod(testCase),
-                executionEndpoint(testCase),
+                executionMethod,
+                executionEndpoint,
                 testCase.getType(),
                 testCase.getTestLevel(),
                 testCase.getDescription(),
@@ -65,7 +86,11 @@ public record TestCaseSummaryResponse(
                 testCase.getVersion(),
                 SelectedEndpointResponse.from(
                         selectedEndpoint,
-                        testCase.getApiInventory() == null ? selectedEndpoint.getId() : testCase.getApiInventory().getId()
+                        selectedId,
+                        projectId,
+                        apiInventoryId,
+                        apiEndpointId,
+                        endpointId
                 )
         );
     }
@@ -81,24 +106,44 @@ public record TestCaseSummaryResponse(
     }
 
     public record SelectedEndpointResponse(
-            @Schema(description = "API ID", example = "10")
+            @Schema(description = "Selected API ID. Inventory ID when available, otherwise endpoint PK.", example = "2248")
             Long id,
-            @Schema(description = "HTTP 메서드", example = "GET")
+            @Schema(description = "Project ID for inventory detail lookup.", example = "1")
+            Long projectId,
+            @Schema(description = "API inventory ID.", example = "2248")
+            Long apiInventoryId,
+            @Schema(description = "Legacy API endpoint PK.", example = "10")
+            Long apiEndpointId,
+            @Schema(description = "Stable endpoint key in METHOD:/path format.", example = "POST:/orders")
+            String endpointId,
+            @Schema(description = "HTTP method.", example = "GET")
             ApiMethod method,
-            @Schema(description = "API 경로", example = "/orders/{orderId}")
+            @Schema(description = "API path.", example = "/orders/{orderId}")
             String path,
-            @Schema(description = "도메인 태그", example = "ORDER")
+            @Schema(description = "Domain tag.", example = "ORDER")
             String domainTag,
-            @Schema(description = "컨트롤러 이름", example = "OrderController")
+            @Schema(description = "Controller name.", example = "OrderController")
             String controllerName
     ) {
         public static SelectedEndpointResponse from(ApiEndpoint endpoint) {
-            return from(endpoint, endpoint.getId());
+            return from(endpoint, endpoint.getId(), null, null, endpoint.getId(),
+                    endpoint.getMethod().name() + ":" + endpoint.getPath());
         }
 
-        public static SelectedEndpointResponse from(ApiEndpoint endpoint, Long id) {
+        public static SelectedEndpointResponse from(
+                ApiEndpoint endpoint,
+                Long id,
+                Long projectId,
+                Long apiInventoryId,
+                Long apiEndpointId,
+                String endpointId
+        ) {
             return new SelectedEndpointResponse(
                     id,
+                    projectId,
+                    apiInventoryId,
+                    apiEndpointId,
+                    endpointId,
                     endpoint.getMethod(),
                     endpoint.getPath(),
                     endpoint.getDomainTag(),

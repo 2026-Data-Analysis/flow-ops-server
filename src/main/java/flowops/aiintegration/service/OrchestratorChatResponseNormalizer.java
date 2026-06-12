@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
 import flowops.api.repository.ApiEndpointRepository;
+import flowops.api.service.ApiEndpointService;
+import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
 import flowops.integration.ai.AiAgentContracts.OrchestratorAgentResultPayload;
@@ -38,6 +41,8 @@ public class OrchestratorChatResponseNormalizer {
 
     private final AppService appService;
     private final ApiEndpointRepository apiEndpointRepository;
+    private final ApiEndpointService apiEndpointService;
+    private final ApiInventoryRepository apiInventoryRepository;
     private final TestGenerationRepository testGenerationRepository;
     private final TestGenerationApiSelectionRepository selectionRepository;
     private final GeneratedTestCaseDraftRepository draftRepository;
@@ -54,7 +59,7 @@ public class OrchestratorChatResponseNormalizer {
         }
 
         App app = appService.getApp(appId);
-        Map<String, ApiEndpoint> endpoints = endpointsByResponseKey(app, request.context());
+        Map<String, ResolvedEndpoint> endpoints = endpointsByResponseKey(app, request.context());
         List<OrchestratorAgentResultPayload> normalizedResults = new ArrayList<>();
         boolean changed = false;
 
@@ -102,14 +107,14 @@ public class OrchestratorChatResponseNormalizer {
             App app,
             OrchestratorChatRequest request,
             JsonNode data,
-            Map<String, ApiEndpoint> endpoints
+            Map<String, ResolvedEndpoint> endpoints
     ) {
         List<ResolvedDraft> resolvedDrafts = new ArrayList<>();
-        Map<Long, ApiEndpoint> selectedEndpoints = new LinkedHashMap<>();
+        Map<String, ResolvedEndpoint> selectedEndpoints = new LinkedHashMap<>();
         for (JsonNode draft : data.path("drafts")) {
-            ApiEndpoint endpoint = resolveDraftEndpoint(app.getId(), draft, endpoints);
-            selectedEndpoints.putIfAbsent(endpoint.getId(), endpoint);
-            resolvedDrafts.add(new ResolvedDraft(draft, endpoint));
+            ResolvedEndpoint resolvedEndpoint = resolveDraftEndpoint(app, draft, endpoints);
+            selectedEndpoints.putIfAbsent(selectionKey(resolvedEndpoint), resolvedEndpoint);
+            resolvedDrafts.add(new ResolvedDraft(draft, resolvedEndpoint));
         }
 
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
@@ -127,7 +132,8 @@ public class OrchestratorChatResponseNormalizer {
         List<GeneratedTestCaseDraft> savedDrafts = new ArrayList<>();
         for (ResolvedDraft resolvedDraft : resolvedDrafts) {
             JsonNode draft = resolvedDraft.draft();
-            ApiEndpoint endpoint = resolvedDraft.endpoint();
+            ApiEndpoint endpoint = resolvedDraft.endpoint().apiEndpoint();
+            ApiInventory inventory = resolvedDraft.endpoint().apiInventory();
             // 에이전트가 내려준 draft별 type/risk_level 원본 로그 (테스트 레벨 매핑 검증용)
             log.info("[Orchestrator testcase draft] title='{}' type='{}' risk_level(raw from agent)='{}'",
                     text(draft, "title"), text(draft, "type"),
@@ -135,6 +141,7 @@ public class OrchestratorChatResponseNormalizer {
             savedDrafts.add(draftRepository.save(GeneratedTestCaseDraft.builder()
                     .generation(generation)
                     .apiEndpoint(endpoint)
+                    .apiInventory(inventory)
                     .title(defaultIfBlank(text(draft, "title"), endpoint.getMethod() + " " + endpoint.getPath()))
                     .description(text(draft, "description"))
                     .type(defaultIfBlank(text(draft, "type"), "HAPPY_PATH"))
@@ -159,7 +166,8 @@ public class OrchestratorChatResponseNormalizer {
         selectedEndpoints.values().stream()
                 .map(endpoint -> TestGenerationApiSelection.builder()
                         .generation(generation)
-                        .apiEndpoint(endpoint)
+                        .apiEndpoint(endpoint.apiEndpoint())
+                        .apiInventory(endpoint.apiInventory())
                         .build())
                 .forEach(selectionRepository::save);
 
@@ -175,38 +183,43 @@ public class OrchestratorChatResponseNormalizer {
         return normalized;
     }
 
-    private Map<String, ApiEndpoint> endpointsByResponseKey(App app, JsonNode context) {
-        Map<String, ApiEndpoint> endpoints = new LinkedHashMap<>();
+    private Map<String, ResolvedEndpoint> endpointsByResponseKey(App app, JsonNode context) {
+        Map<String, ResolvedEndpoint> endpoints = new LinkedHashMap<>();
         JsonNode inventory = context == null ? null : context.get("api_inventory");
         JsonNode endpointNodes = inventory == null ? null : inventory.get("endpoints");
         if (endpointNodes == null || !endpointNodes.isArray()) {
             return endpoints;
         }
         for (JsonNode endpointNode : endpointNodes) {
-            ApiEndpoint endpoint = resolveContextEndpoint(app.getId(), endpointNode);
+            ResolvedEndpoint endpoint = resolveContextEndpoint(app, endpointNode);
             registerEndpoint(endpoints, endpointNode, endpoint);
         }
         return endpoints;
     }
 
-    private ApiEndpoint resolveContextEndpoint(Long appId, JsonNode endpointNode) {
-        Long endpointId = parseLongOrNull(firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")));
-        if (endpointId != null) {
-            java.util.Optional<ApiEndpoint> endpoint = findEndpointByIdAndAppId(endpointId, appId);
+    private ResolvedEndpoint resolveContextEndpoint(App app, JsonNode endpointNode) {
+        Long id = parseLongOrNull(firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")));
+        if (id != null) {
+            java.util.Optional<ApiInventory> inventory = findInventoryByIdAndAppId(id, app.getId());
+            if (inventory.isPresent()) {
+                return resolvedInventory(app, inventory.get());
+            }
+            java.util.Optional<ApiEndpoint> endpoint = findEndpointByIdAndAppId(id, app.getId());
             if (endpoint.isPresent()) {
-                return endpoint.get();
+                return new ResolvedEndpoint(endpoint.get(), null);
             }
         }
         EndpointTarget target = endpointTarget(endpointNode);
         if (target == null) {
             throw new IllegalArgumentException("API endpoint does not belong to the requested app.");
         }
-        return findEndpointByMethodAndPath(appId, target.method(), target.path())
+        return findEndpointByMethodAndPath(app.getId(), target.method(), target.path())
+                .map(endpoint -> new ResolvedEndpoint(endpoint, null))
                 .orElseThrow(() -> new IllegalArgumentException("API endpoint does not belong to the requested app."));
     }
 
-    private ApiEndpoint resolveDraftEndpoint(Long appId, JsonNode draft, Map<String, ApiEndpoint> endpoints) {
-        ApiEndpoint endpoint = firstEndpoint(
+    private ResolvedEndpoint resolveDraftEndpoint(App app, JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
+        ResolvedEndpoint endpoint = firstEndpoint(
                 endpoints,
                 text(draft, "apiId"),
                 text(draft, "endpoint_id"),
@@ -218,7 +231,7 @@ public class OrchestratorChatResponseNormalizer {
         // 채팅 흐름은 context에 api_inventory가 없을 수 있어 endpoints 맵이 비어 있다.
         // 이 경우 에이전트가 내려준 숫자 apiId/endpoint_id를 직접 조회해 method/path를 채운다.
         // (이게 없으면 프론트가 엔드포인트명 대신 "API #<id>"로 표시된다.)
-        ApiEndpoint byId = resolveByEndpointId(appId, draft);
+        ResolvedEndpoint byId = resolveById(app, draft);
         if (byId != null) {
             return byId;
         }
@@ -227,22 +240,38 @@ public class OrchestratorChatResponseNormalizer {
             target = endpointTarget(draft.get("selectedEndpoint"));
         }
         if (target == null) {
-            throw new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
+            throw unresolvedDraftException(draft, endpoints);
         }
-        return findEndpointByMethodAndPath(appId, target.method(), target.path())
-                .orElseThrow(() -> new IllegalArgumentException("Testcase draft does not include a resolvable endpoint."));
+        return findEndpointByMethodAndPath(app.getId(), target.method(), target.path())
+                .map(endpointByPath -> new ResolvedEndpoint(endpointByPath, null))
+                .orElseThrow(() -> unresolvedDraftException(draft, endpoints));
     }
 
-    private ApiEndpoint resolveByEndpointId(Long appId, JsonNode draft) {
-        Long endpointId = firstLong(
+    private ResolvedEndpoint resolveById(App app, JsonNode draft) {
+        Long id = firstLong(
                 text(draft, "apiId"),
                 text(draft, "endpoint_id"),
                 nestedText(draft, "selectedEndpoint", "id")
         );
-        if (endpointId == null) {
+        if (id == null) {
             return null;
         }
-        return findEndpointByIdAndAppId(endpointId, appId).orElse(null);
+        return findInventoryByIdAndAppId(id, app.getId())
+                .map(inventory -> resolvedInventory(app, inventory))
+                .or(() -> findEndpointByIdAndAppId(id, app.getId()).map(endpoint -> new ResolvedEndpoint(endpoint, null)))
+                .orElse(null);
+    }
+
+    private java.util.Optional<ApiInventory> findInventoryByIdAndAppId(Long inventoryId, Long appId) {
+        java.util.Optional<ApiInventory> resolved = apiInventoryRepository.findById(inventoryId);
+        return (resolved == null ? java.util.Optional.<ApiInventory>empty() : resolved)
+                .filter(candidate -> candidate.getRepositoryInfo() == null
+                        || candidate.getRepositoryInfo().getApp() == null
+                        || Objects.equals(candidate.getRepositoryInfo().getApp().getId(), appId));
+    }
+
+    private ResolvedEndpoint resolvedInventory(App app, ApiInventory inventory) {
+        return new ResolvedEndpoint(apiEndpointService.findOrCreateFromInventory(app, inventory), inventory);
     }
 
     private java.util.Optional<ApiEndpoint> findEndpointByIdAndAppId(Long endpointId, Long appId) {
@@ -265,14 +294,17 @@ public class OrchestratorChatResponseNormalizer {
         return null;
     }
 
-    private void registerEndpoint(Map<String, ApiEndpoint> endpoints, JsonNode source, ApiEndpoint endpoint) {
+    private void registerEndpoint(Map<String, ResolvedEndpoint> endpoints, JsonNode source, ResolvedEndpoint endpoint) {
         putEndpoint(endpoints, text(source, "endpoint_id"), endpoint);
         putEndpoint(endpoints, text(source, "apiId"), endpoint);
-        putEndpoint(endpoints, String.valueOf(endpoint.getId()), endpoint);
-        putEndpoint(endpoints, endpoint.getMethod().name() + ":" + endpoint.getPath(), endpoint);
+        if (endpoint.apiInventory() != null) {
+            putEndpoint(endpoints, String.valueOf(endpoint.apiInventory().getId()), endpoint);
+        }
+        putEndpoint(endpoints, String.valueOf(endpoint.apiEndpoint().getId()), endpoint);
+        putEndpoint(endpoints, endpoint.apiEndpoint().getMethod().name() + ":" + endpoint.apiEndpoint().getPath(), endpoint);
     }
 
-    private ApiEndpoint firstEndpoint(Map<String, ApiEndpoint> endpoints, String... keys) {
+    private ResolvedEndpoint firstEndpoint(Map<String, ResolvedEndpoint> endpoints, String... keys) {
         for (String key : keys) {
             if (key != null && endpoints.containsKey(key)) {
                 return endpoints.get(key);
@@ -281,10 +313,40 @@ public class OrchestratorChatResponseNormalizer {
         return null;
     }
 
-    private void putEndpoint(Map<String, ApiEndpoint> endpoints, String key, ApiEndpoint endpoint) {
+    private void putEndpoint(Map<String, ResolvedEndpoint> endpoints, String key, ResolvedEndpoint endpoint) {
         if (key != null && !key.isBlank()) {
             endpoints.put(key, endpoint);
         }
+    }
+
+    private IllegalArgumentException unresolvedDraftException(JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
+        String draftApiId = firstText(draft, "apiId", text(draft, "endpoint_id"));
+        List<Long> availableEndpointIds = endpoints.values().stream()
+                .map(endpoint -> endpoint.apiEndpoint().getId())
+                .distinct()
+                .toList();
+        List<Long> availableInventoryIds = endpoints.values().stream()
+                .map(ResolvedEndpoint::apiInventory)
+                .filter(Objects::nonNull)
+                .map(ApiInventory::getId)
+                .distinct()
+                .toList();
+        List<String> availableMethodPaths = endpoints.values().stream()
+                .map(endpoint -> endpoint.apiEndpoint().getMethod().name() + ":" + endpoint.apiEndpoint().getPath())
+                .distinct()
+                .toList();
+        log.warn("Failed to resolve testcase draft endpoint. draftApiId={}, availableEndpointIds={}, availableInventoryIds={}, availableMethodPaths={}",
+                draftApiId,
+                availableEndpointIds,
+                availableInventoryIds,
+                availableMethodPaths);
+        return new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
+    }
+
+    private String selectionKey(ResolvedEndpoint endpoint) {
+        return endpoint.apiInventory() == null
+                ? "endpoint:" + endpoint.apiEndpoint().getId()
+                : "inventory:" + endpoint.apiInventory().getId();
     }
 
     private EndpointTarget endpointTarget(JsonNode node) {
@@ -399,6 +461,9 @@ public class OrchestratorChatResponseNormalizer {
     private record EndpointTarget(ApiMethod method, String path) {
     }
 
-    private record ResolvedDraft(JsonNode draft, ApiEndpoint endpoint) {
+    private record ResolvedEndpoint(ApiEndpoint apiEndpoint, ApiInventory apiInventory) {
+    }
+
+    private record ResolvedDraft(JsonNode draft, ResolvedEndpoint endpoint) {
     }
 }

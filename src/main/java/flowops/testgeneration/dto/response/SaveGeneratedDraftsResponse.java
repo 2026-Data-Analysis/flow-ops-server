@@ -4,13 +4,17 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 public record SaveGeneratedDraftsResponse(
-        @Schema(description = "생성 작업 ID", example = "77")
+        @Schema(description = "Generation job ID", example = "77")
         Long generationId,
-        @Schema(description = "저장된 테스트 케이스 수", example = "3")
+        @Schema(description = "Saved test case count", example = "3")
         int savedCount,
-        @Schema(description = "저장된 테스트 케이스 ID 목록", example = "[501, 502]")
+        @Schema(description = "Saved test case IDs", example = "[501, 502]")
         List<Long> savedTestCaseIds,
-        @Schema(description = "저장된 테스트 케이스가 연결된 API ID 목록", example = "[10, 11]")
-        List<Long> apiIds
+        @Schema(description = "Selected API IDs. Inventory IDs when available, otherwise endpoint PKs.", example = "[2248, 2056]")
+        List<Long> apiIds,
+        @Schema(description = "API inventory IDs for saved test cases.", example = "[2248]")
+        List<Long> apiInventoryIds,
+        @Schema(description = "Legacy API endpoint PKs for saved test cases.", example = "[10, 11]")
+        List<Long> apiEndpointIds
 ) {
 }
