@@ -3,6 +3,7 @@ package flowops.aiintegration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -268,7 +269,7 @@ class OrchestratorChatResponseNormalizerTest {
                 {
                   "drafts": [
                     {
-                      "apiId": "2241",
+                      "apiId": "POST:/mates/chat",
                       "title": "Mate chat succeeds",
                       "type": "HAPPY_PATH"
                     }
@@ -377,6 +378,164 @@ class OrchestratorChatResponseNormalizerTest {
     }
 
     @Test
+    void normalizeResolvesNullDraftApiIdByMethodAndPath() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/projects");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        stubDraftPersistence(91L, 3001L);
+
+        OrchestratorChatResponse normalized = service().normalize(
+                requestWithData(3L),
+                responseWithData("""
+                        {
+                          "drafts": [
+                            {"title": "Create project", "method": "POST", "path": "/projects"}
+                          ]
+                        }
+                        """)
+        );
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiInventoryId").asLong()).isEqualTo(2249L);
+        assertThat(draft.path("endpointId").asText()).isEqualTo("POST:/projects");
+        verify(apiEndpointService, never()).getApiEndpointDetail(any());
+    }
+
+    @Test
+    void normalizeResolvesNullDraftApiIdByRequestSpecMethodAndPath() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/projects");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        stubDraftPersistence(92L, 3002L);
+
+        OrchestratorChatResponse normalized = normalizeAgentData(3L, """
+                {
+                  "drafts": [
+                    {
+                      "title": "Create project",
+                      "requestSpec": {"method": "POST", "path": "/projects", "body": {"name": "FlowOps"}}
+                    }
+                  ]
+                }
+                """);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiInventoryId").asLong()).isEqualTo(2249L);
+        assertThat(draft.path("requestSpec").asText()).contains("\"endpoint\":\"/projects\"");
+    }
+
+    @Test
+    void normalizeResolvesEndpointIdAndApiIdMethodPathKeys() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/projects");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        stubDraftPersistence(93L, 3003L);
+
+        OrchestratorChatResponse normalized = normalizeAgentData(3L, """
+                {
+                  "drafts": [
+                    {"endpoint_id": "POST:/projects", "title": "Legacy project"},
+                    {"apiId": "POST:/projects", "title": "New project"}
+                  ]
+                }
+                """);
+
+        JsonNode drafts = normalized.data().agent_results().get(0).data().path("drafts");
+        assertThat(drafts).hasSize(2);
+        assertThat(drafts.get(0).path("apiInventoryId").asLong()).isEqualTo(2249L);
+        assertThat(drafts.get(1).path("apiInventoryId").asLong()).isEqualTo(2249L);
+        verify(selectionRepository, times(1)).save(any());
+    }
+
+    @Test
+    void normalizeResolvesNumericApiIdAsInventoryBeforeApiEndpointId() throws Exception {
+        App app = app(3L);
+        ApiEndpoint inventoryEndpoint = endpoint(2056L, app, "/projects");
+        ApiEndpoint sameNumberEndpoint = endpoint(2249L, app, "/wrong");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(inventoryEndpoint);
+        stubDraftPersistence(94L, 3004L);
+
+        OrchestratorChatResponse normalized = normalizeAgentData(3L, """
+                {
+                  "drafts": [
+                    {"apiId": "2249", "title": "Numeric inventory"}
+                  ]
+                }
+                """);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiInventoryId").asLong()).isEqualTo(2249L);
+        assertThat(draft.path("apiEndpointId").asLong()).isEqualTo(2056L);
+        verify(apiEndpointRepository, never()).findById(2249L);
+        assertThat(sameNumberEndpoint.getPath()).isEqualTo("/wrong");
+    }
+
+    @Test
+    void normalizeDoesNotTreatNumericEndpointIdsAsEndpointKeysWhenMethodPathCanResolve() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(72L, app, "/projects");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        stubDraftPersistence(95L, 3005L);
+
+        OrchestratorChatResponse normalized = normalizeAgentData(3L, """
+                {
+                  "drafts": [
+                    {"endpointId": "72", "method": "POST", "path": "/projects", "title": "Project by path"}
+                  ]
+                }
+                """);
+
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("apiInventoryId").asLong()).isEqualTo(2249L);
+        verify(apiEndpointRepository, never()).findById(72L);
+    }
+
+    @Test
+    void normalizeKeepsUnresolvedDraftsWithoutFailingResolvedResults() throws Exception {
+        App app = app(3L);
+        ApiEndpoint endpoint = endpoint(2056L, app, "/projects");
+        ApiInventory inventory = inventory(2249L, "/projects");
+        when(appService.getApp(3L)).thenReturn(app);
+        when(apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(3L)).thenReturn(List.of(inventory));
+        when(apiEndpointService.findOrCreateFromInventory(app, inventory)).thenReturn(endpoint);
+        stubDraftPersistence(96L, 3006L);
+
+        OrchestratorChatResponse normalized = normalizeAgentData(3L, """
+                {
+                  "drafts": [
+                    {"apiInventoryId": 2249, "title": "Resolved project"},
+                    {"apiId": "missing-action", "title": "Unresolved action", "method": "GET", "path": "/missing"}
+                  ]
+                }
+                """);
+
+        JsonNode data = normalized.data().agent_results().get(0).data();
+        assertThat(data.path("generationId").asLong()).isEqualTo(96L);
+        assertThat(data.path("drafts")).hasSize(2);
+        assertThat(data.path("drafts").get(0).path("apiInventoryId").asLong()).isEqualTo(2249L);
+        assertThat(data.path("drafts").get(1).path("unresolved").asBoolean()).isTrue();
+        assertThat(data.path("drafts").get(1).path("method").asText()).isEqualTo("GET");
+        assertThat(data.path("drafts").get(1).path("path").asText()).isEqualTo("/missing");
+        verify(testGenerationRepository, times(1)).save(any(TestGeneration.class));
+        verify(apiEndpointService, never()).getApiEndpointDetail(any());
+    }
+
+    @Test
     void normalizeReturnsOriginalResponseWithoutSavingWhenDraftEndpointCannotBeResolved() throws Exception {
         App app = app(1L);
         JsonNode agentData = objectMapper.readTree("""
@@ -452,6 +611,42 @@ class OrchestratorChatResponseNormalizerTest {
         assertThat(draft.path("apiId").asText()).isEqualTo("9999");
         verify(testGenerationRepository, never()).save(any(TestGeneration.class));
         verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
+    }
+
+    private OrchestratorChatResponse normalizeAgentData(Long appId, String agentDataJson) throws Exception {
+        return service().normalize(requestWithData(appId), responseWithData(agentDataJson));
+    }
+
+    private OrchestratorChatRequest requestWithData(Long appId) throws Exception {
+        return new OrchestratorChatRequest(String.valueOf(appId), "generate tests", objectMapper.readTree("{}"));
+    }
+
+    private OrchestratorChatResponse responseWithData(String agentDataJson) throws Exception {
+        return new OrchestratorChatResponse(
+                true,
+                new OrchestratorChatDataPayload(
+                        List.of("testcase"),
+                        List.of(new OrchestratorAgentResultPayload("testcase", true, objectMapper.readTree(agentDataJson), null)),
+                        "done"
+                ),
+                null,
+                null,
+                "trace-generated"
+        );
+    }
+
+    private void stubDraftPersistence(Long generationId, Long firstDraftId) {
+        when(testGenerationRepository.save(any(TestGeneration.class))).thenAnswer(invocation -> {
+            TestGeneration generation = invocation.getArgument(0);
+            ReflectionTestUtils.setField(generation, "id", generationId);
+            return generation;
+        });
+        final long[] index = {0};
+        when(draftRepository.save(any(GeneratedTestCaseDraft.class))).thenAnswer(invocation -> {
+            GeneratedTestCaseDraft draft = invocation.getArgument(0);
+            ReflectionTestUtils.setField(draft, "id", firstDraftId + index[0]++);
+            return draft;
+        });
     }
 
     private OrchestratorChatResponseNormalizer service() {

@@ -40,13 +40,14 @@ public class ApiInventoryResolver {
                         endpoint.apiEndpointId(),
                         endpoint.method(),
                         endpoint.path()),
-                () -> log.warn("Failed to resolve generated draft endpoint. draftApiId={}, projectId={}, appId={}, availableInventoryIds={}, availableEndpointIds={}, availableMethodPaths={}",
+                () -> log.warn("Failed to resolve generated draft endpoint. draftApiId={}, projectId={}, appId={}, availableInventoryIds={}, availableApiEndpointIds={}, availableMethodPaths={}, availableEndpointKeys={}",
                         request == null ? null : request.apiId(),
                         request == null ? null : request.projectId(),
                         request == null ? appId(app) : request.appId(),
                         availableInventoryIds(inventories),
-                        availableEndpointIds(app),
-                        availableMethodPaths(inventories))
+                        availableApiEndpointIds(app),
+                        availableMethodPaths(inventories),
+                        availableEndpointKeys(inventories))
         );
         return resolved;
     }
@@ -186,13 +187,17 @@ public class ApiInventoryResolver {
         );
     }
 
-    private List<Long> availableEndpointIds(App app) {
+    private List<Long> availableApiEndpointIds(App app) {
         if (app == null || app.getId() == null) {
             return List.of();
         }
         return apiEndpointRepository.findByAppId(app.getId()).stream()
                 .map(ApiEndpoint::getId)
                 .toList();
+    }
+
+    private List<String> availableEndpointKeys(List<ApiInventory> inventories) {
+        return availableMethodPaths(inventories);
     }
 
     private String methodPath(ApiInventory inventory) {

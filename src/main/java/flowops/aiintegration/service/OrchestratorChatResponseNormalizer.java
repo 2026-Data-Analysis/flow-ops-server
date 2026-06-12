@@ -130,8 +130,12 @@ public class OrchestratorChatResponseNormalizer {
                 unresolvedDrafts.size(),
                 unresolvedDrafts.stream()
                         .limit(5)
-                        .map(unresolved -> firstText(unresolved.draft(), "endpoint_id", text(unresolved.draft(), "apiId")))
+                        .map(unresolved -> firstText(unresolved.draft(), "endpointId",
+                                firstText(unresolved.draft(), "endpoint_id", text(unresolved.draft(), "apiId"))))
                         .toList());
+        if (!unresolvedDrafts.isEmpty()) {
+            logUnresolvedDrafts(unresolvedDrafts, endpoints);
+        }
 
         if (resolvedDrafts.isEmpty()) {
             ObjectNode normalized = objectMapper.createObjectNode();
@@ -260,7 +264,8 @@ public class OrchestratorChatResponseNormalizer {
     }
 
     private ResolvedEndpoint resolveContextEndpoint(App app, JsonNode endpointNode) {
-        Long id = parseLongOrNull(firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")));
+        Long id = parseLongOrNull(firstText(endpointNode, "endpointId",
+                firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId"))));
         if (id != null) {
             java.util.Optional<ApiInventory> inventory = findInventoryByIdAndAppId(id, app.getId());
             if (inventory.isPresent()) {
@@ -281,55 +286,125 @@ public class OrchestratorChatResponseNormalizer {
     }
 
     private ResolvedEndpoint resolveDraftEndpoint(App app, JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
-        ResolvedEndpoint endpoint = firstEndpoint(
+        ResolvedEndpoint endpoint = resolveByInventoryId(app, draft, endpoints);
+        if (endpoint != null) {
+            return endpoint;
+        }
+        // Numeric apiId is intentionally resolved after stable inventory and METHOD:/path keys.
+        endpoint = resolveByEndpointKey(
                 endpoints,
-                text(draft, "apiId"),
-                text(draft, "endpoint_id"),
-                nestedText(draft, "selectedEndpoint", "id")
+                firstText(draft, "endpointId", text(draft, "endpoint_id")),
+                nestedText(draft, "selectedEndpoint", "endpointId")
         );
         if (endpoint != null) {
             return endpoint;
         }
-        // 채팅 흐름은 context에 api_inventory가 없을 수 있어 endpoints 맵이 비어 있다.
-        // 이 경우 에이전트가 내려준 숫자 apiId/endpoint_id를 직접 조회해 method/path를 채운다.
-        // (이게 없으면 프론트가 엔드포인트명 대신 "API #<id>"로 표시된다.)
-        ResolvedEndpoint byId = resolveById(app, draft);
-        if (byId != null) {
-            return byId;
+
+        endpoint = resolveByEndpointKey(endpoints, methodPathOrNull(text(draft, "apiId")));
+        if (endpoint != null) {
+            return endpoint;
         }
-        EndpointTarget target = endpointTarget(draft);
+
+        endpoint = resolveByTarget(app, endpoints, endpointTargetFromFields(draft));
+        if (endpoint != null) {
+            return endpoint;
+        }
+
+        endpoint = resolveByTarget(app, endpoints, endpointTarget(firstNode(draft, "requestSpec", "request")));
+        if (endpoint != null) {
+            return endpoint;
+        }
+
+        endpoint = resolveByNumericApiIdAsInventory(app, draft, endpoints);
+        if (endpoint != null) {
+            return endpoint;
+        }
+
+        endpoint = resolveByApiEndpointId(app, draft, endpoints);
+        if (endpoint != null) {
+            return endpoint;
+        }
+
+        throw unresolvedDraftException();
+    }
+
+    private ResolvedEndpoint resolveByInventoryId(App app, JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
+        Long inventoryId = firstLong(text(draft, "apiInventoryId"), nestedText(draft, "selectedEndpoint", "apiInventoryId"));
+        if (inventoryId == null) {
+            return null;
+        }
+        ResolvedEndpoint endpoint = firstInventoryEndpoint(endpoints, inventoryId);
+        if (endpoint != null) {
+            return endpoint;
+        }
+        return findInventoryByIdAndAppId(inventoryId, app.getId())
+                .map(inventory -> resolvedInventory(app, inventory))
+                .orElse(null);
+    }
+
+    private ResolvedEndpoint resolveByNumericApiIdAsInventory(App app, JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
+        Long inventoryId = parseLongOrNull(text(draft, "apiId"));
+        if (inventoryId == null) {
+            return null;
+        }
+        ResolvedEndpoint endpoint = firstInventoryEndpoint(endpoints, inventoryId);
+        if (endpoint != null) {
+            return endpoint;
+        }
+        return findInventoryByIdAndAppId(inventoryId, app.getId())
+                .map(inventory -> resolvedInventory(app, inventory))
+                .orElse(null);
+    }
+
+    private ResolvedEndpoint resolveByApiEndpointId(App app, JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
+        Long endpointId = firstLong(
+                text(draft, "apiEndpointId"),
+                nestedText(draft, "selectedEndpoint", "apiEndpointId"),
+                nestedText(draft, "selectedEndpoint", "id"),
+                text(draft, "endpointId"),
+                text(draft, "endpoint_id"),
+                text(draft, "apiId")
+        );
+        if (endpointId == null) {
+            return null;
+        }
+        ResolvedEndpoint endpoint = firstApiEndpoint(endpoints, endpointId);
+        if (endpoint != null) {
+            return endpoint;
+        }
+        return findEndpointByIdAndAppId(endpointId, app.getId())
+                .map(apiEndpoint -> new ResolvedEndpoint(apiEndpoint, null))
+                .orElse(null);
+    }
+
+    private ResolvedEndpoint resolveByEndpointKey(Map<String, ResolvedEndpoint> endpoints, String... keys) {
+        for (String key : keys) {
+            String methodPath = methodPathOrNull(key);
+            if (methodPath != null && endpoints.containsKey(methodPath)) {
+                return endpoints.get(methodPath);
+            }
+        }
+        return null;
+    }
+
+    private ResolvedEndpoint resolveByTarget(App app, Map<String, ResolvedEndpoint> endpoints, EndpointTarget target) {
         if (target == null) {
-            target = endpointTarget(draft.get("selectedEndpoint"));
+            return null;
         }
-        if (target == null) {
-            throw unresolvedDraftException(draft, endpoints);
+        ResolvedEndpoint endpoint = resolveByEndpointKey(endpoints, target.method().name() + ":" + target.path());
+        if (endpoint != null) {
+            return endpoint;
         }
-        EndpointTarget resolvedTarget = target;
-        String normalizedPath = normalizeDuplicatedPath(resolvedTarget.path());
-        return findEndpointByMethodAndPath(app.getId(), resolvedTarget.method(), resolvedTarget.path())
+        String normalizedPath = normalizeDuplicatedPath(target.path());
+        return findEndpointByMethodAndPath(app.getId(), target.method(), target.path())
                 .map(endpointByPath -> new ResolvedEndpoint(endpointByPath, null))
-                .or(() -> findEndpointByMethodAndPath(app.getId(), resolvedTarget.method(), normalizedPath)
+                .or(() -> findEndpointByMethodAndPath(app.getId(), target.method(), normalizedPath)
                         .map(endpointByPath -> {
                             log.info("Normalized duplicated endpoint path. original={}, normalized={}",
-                                    resolvedTarget.path(),
+                                    target.path(),
                                     normalizedPath);
                             return new ResolvedEndpoint(endpointByPath, null);
                         }))
-                .orElseThrow(() -> unresolvedDraftException(draft, endpoints));
-    }
-
-    private ResolvedEndpoint resolveById(App app, JsonNode draft) {
-        Long id = firstLong(
-                text(draft, "apiId"),
-                text(draft, "endpoint_id"),
-                nestedText(draft, "selectedEndpoint", "id")
-        );
-        if (id == null) {
-            return null;
-        }
-        return findInventoryByIdAndAppId(id, app.getId())
-                .map(inventory -> resolvedInventory(app, inventory))
-                .or(() -> findEndpointByIdAndAppId(id, app.getId()).map(endpoint -> new ResolvedEndpoint(endpoint, null)))
                 .orElse(null);
     }
 
@@ -366,6 +441,7 @@ public class OrchestratorChatResponseNormalizer {
     }
 
     private void registerEndpoint(Map<String, ResolvedEndpoint> endpoints, JsonNode source, ResolvedEndpoint endpoint) {
+        putEndpoint(endpoints, text(source, "endpointId"), endpoint);
         putEndpoint(endpoints, text(source, "endpoint_id"), endpoint);
         putEndpoint(endpoints, text(source, "apiId"), endpoint);
         if (endpoint.apiInventory() != null) {
@@ -385,13 +461,20 @@ public class OrchestratorChatResponseNormalizer {
         }
     }
 
-    private ResolvedEndpoint firstEndpoint(Map<String, ResolvedEndpoint> endpoints, String... keys) {
-        for (String key : keys) {
-            if (key != null && endpoints.containsKey(key)) {
-                return endpoints.get(key);
-            }
-        }
-        return null;
+    private ResolvedEndpoint firstInventoryEndpoint(Map<String, ResolvedEndpoint> endpoints, Long inventoryId) {
+        return endpoints.values().stream()
+                .filter(endpoint -> endpoint.apiInventory() != null)
+                .filter(endpoint -> Objects.equals(endpoint.apiInventory().getId(), inventoryId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private ResolvedEndpoint firstApiEndpoint(Map<String, ResolvedEndpoint> endpoints, Long apiEndpointId) {
+        return endpoints.values().stream()
+                .filter(endpoint -> endpoint.apiEndpoint() != null)
+                .filter(endpoint -> Objects.equals(endpoint.apiEndpoint().getId(), apiEndpointId))
+                .findFirst()
+                .orElse(null);
     }
 
     private void putEndpoint(Map<String, ResolvedEndpoint> endpoints, String key, ResolvedEndpoint endpoint) {
@@ -400,9 +483,17 @@ public class OrchestratorChatResponseNormalizer {
         }
     }
 
-    private IllegalArgumentException unresolvedDraftException(JsonNode draft, Map<String, ResolvedEndpoint> endpoints) {
-        String draftApiId = firstText(draft, "apiId", text(draft, "endpoint_id"));
-        List<Long> availableEndpointIds = endpoints.values().stream()
+    private IllegalArgumentException unresolvedDraftException() {
+        return new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
+    }
+
+    private void logUnresolvedDrafts(List<UnresolvedDraft> unresolvedDrafts, Map<String, ResolvedEndpoint> endpoints) {
+        List<String> draftKeys = unresolvedDrafts.stream()
+                .limit(5)
+                .map(unresolved -> firstText(unresolved.draft(), "apiId",
+                        firstText(unresolved.draft(), "endpointId", text(unresolved.draft(), "endpoint_id"))))
+                .toList();
+        List<Long> availableApiEndpointIds = endpoints.values().stream()
                 .map(endpoint -> endpoint.apiEndpoint().getId())
                 .distinct()
                 .toList();
@@ -416,12 +507,18 @@ public class OrchestratorChatResponseNormalizer {
                 .map(endpoint -> endpoint.apiEndpoint().getMethod().name() + ":" + endpoint.apiEndpoint().getPath())
                 .distinct()
                 .toList();
-        log.warn("Failed to resolve testcase draft endpoint. draftApiId={}, availableEndpointIds={}, availableInventoryIds={}, availableMethodPaths={}",
-                draftApiId,
-                availableEndpointIds,
+        List<String> availableEndpointKeys = endpoints.keySet().stream()
+                .map(this::methodPathOrNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        log.warn("Failed to resolve testcase draft endpoints. unresolvedCount={}, draftKeys={}, availableApiEndpointIds={}, availableInventoryIds={}, availableMethodPaths={}, availableEndpointKeys={}",
+                unresolvedDrafts.size(),
+                draftKeys,
+                availableApiEndpointIds,
                 availableInventoryIds,
-                availableMethodPaths);
-        return new IllegalArgumentException("Testcase draft does not include a resolvable endpoint.");
+                availableMethodPaths,
+                availableEndpointKeys);
     }
 
     private String selectionKey(ResolvedEndpoint endpoint) {
@@ -434,9 +531,11 @@ public class OrchestratorChatResponseNormalizer {
         if (node == null || node.isNull() || node.isMissingNode()) {
             return null;
         }
-        String method = firstText(node, "method", firstText(node, "executionMethod", text(node, "execution_method")));
-        String path = firstText(node, "path", firstText(node, "endpoint", firstText(node, "executionEndpoint", text(node, "execution_endpoint"))));
-        String endpointKey = firstText(node, "endpoint_id", text(node, "apiId"));
+        String method = firstText(node, "method", firstText(node, "httpMethod",
+                firstText(node, "http_method", firstText(node, "executionMethod", text(node, "execution_method")))));
+        String path = firstText(node, "path", firstText(node, "endpoint",
+                firstText(node, "executionEndpoint", text(node, "execution_endpoint"))));
+        String endpointKey = firstText(node, "endpointId", firstText(node, "endpoint_id", text(node, "apiId")));
         if ((method == null || path == null || path.isBlank()) && endpointKey != null) {
             int separator = endpointKey.indexOf(':');
             if (separator > 0) {
@@ -454,12 +553,50 @@ public class OrchestratorChatResponseNormalizer {
         }
     }
 
+    private EndpointTarget endpointTargetFromFields(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        String method = text(node, "method");
+        String path = text(node, "path");
+        if (method == null || method.isBlank() || path == null || path.isBlank()) {
+            return null;
+        }
+        try {
+            return new EndpointTarget(ApiMethod.valueOf(method.trim().toUpperCase()), normalizeDuplicatedPath(path.trim()));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private String methodPathOrNull(String value) {
+        EndpointTarget target = endpointTargetFromKey(value);
+        return target == null ? null : target.method().name() + ":" + target.path();
+    }
+
+    private EndpointTarget endpointTargetFromKey(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        int separator = value.indexOf(':');
+        if (separator <= 0 || separator == value.length() - 1) {
+            return null;
+        }
+        try {
+            ApiMethod method = ApiMethod.valueOf(value.substring(0, separator).trim().toUpperCase());
+            String path = value.substring(separator + 1).trim();
+            return path.isBlank() ? null : new EndpointTarget(method, normalizeDuplicatedPath(path));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
     private ObjectNode unresolvedDraftResponse(JsonNode draft, String resolveError) {
         ObjectNode response = draft != null && draft.isObject()
                 ? draft.deepCopy()
                 : objectMapper.createObjectNode();
         EndpointTarget target = endpointTarget(draft);
-        String endpointId = firstText(draft, "endpoint_id", text(draft, "apiId"));
+        String endpointId = firstText(draft, "endpointId", firstText(draft, "endpoint_id", text(draft, "apiId")));
         if (target != null) {
             endpointId = target.method().name() + ":" + target.path();
             response.put("method", target.method().name());
