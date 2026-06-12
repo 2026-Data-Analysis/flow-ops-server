@@ -10,6 +10,7 @@ import flowops.apiinventory.domain.entity.ApiInventoryStatus;
 import flowops.apiinventory.dto.request.SaveApiInventoryRequest;
 import flowops.apiinventory.dto.response.AgentApiInventorySearchResponse;
 import flowops.apiinventory.dto.response.AgentApiInventorySearchResponse.AgentApiSpec;
+import flowops.apiinventory.dto.response.AgentApiInventorySearchResponse.AgentNaturalLanguageScenarioRequest;
 import flowops.apiinventory.dto.response.AgentApiInventorySearchResponse.AgentTestCaseSpec;
 import flowops.apiinventory.dto.response.ApiInventoryBranchSummaryResponse;
 import flowops.apiinventory.dto.response.ApiInventoryDetailResponse;
@@ -22,9 +23,16 @@ import flowops.github.domain.entity.RepositoryInfo;
 import flowops.github.service.GithubService;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.ExistingScenarioSummary;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.project.domain.entity.Project;
 import flowops.project.service.ProjectService;
 import flowops.scenario.domain.entity.Scenario;
+import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
@@ -35,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -162,15 +171,23 @@ public class ApiInventoryService {
         List<AgentApiSpec> apis = inventories.stream()
                 .map(this::toAgentApiSpec)
                 .toList();
-        List<AgentTestCaseSpec> testCases = findTestCasesForAgent(appId, inventories).stream()
+        List<TestCase> agentTestCases = findTestCasesForAgent(appId, inventories);
+        List<AgentTestCaseSpec> testCases = agentTestCases.stream()
                 .map(this::toAgentTestCaseSpec)
                 .toList();
-        List<ScenarioSummaryResponse> scenarios = findScenariosForAgent(appId).stream()
+        List<Scenario> agentScenarios = findScenariosForAgent(appId);
+        List<ScenarioSummaryResponse> scenarios = agentScenarios.stream()
                 .map(scenario -> ScenarioSummaryResponse.from(
                         scenario,
                         scenarioStepRepository.countByScenarioId(scenario.getId())
                 ))
                 .toList();
+        AgentNaturalLanguageScenarioRequest naturalLanguageScenarioRequest = naturalLanguageScenarioRequest(
+                projectId,
+                inventories,
+                agentTestCases,
+                agentScenarios
+        );
 
         return new AgentApiInventorySearchResponse(
                 projectId,
@@ -184,7 +201,8 @@ public class ApiInventoryService {
                 testCases.size(),
                 testCases,
                 scenarios.size(),
-                scenarios
+                scenarios,
+                naturalLanguageScenarioRequest
         );
     }
 
@@ -291,6 +309,86 @@ public class ApiInventoryService {
         );
     }
 
+    private AgentNaturalLanguageScenarioRequest naturalLanguageScenarioRequest(
+            Long projectId,
+            List<ApiInventory> inventories,
+            List<TestCase> testCases,
+            List<Scenario> scenarios
+    ) {
+        String scenarioProjectId = scenarioProjectId(projectId);
+        return new AgentNaturalLanguageScenarioRequest(
+                "NATURAL_LANGUAGE",
+                null,
+                new ScenarioApiInventoryPayload(
+                        scenarioProjectId,
+                        inventories.stream().map(this::toScenarioEndpointPayload).toList()
+                ),
+                null,
+                testCases.stream().map(this::toScenarioExistingTestCasePayload).toList(),
+                scenarios.stream().map(this::toExistingScenarioSummary).toList(),
+                2,
+                5
+        );
+    }
+
+    private ScenarioEndpointPayload toScenarioEndpointPayload(ApiInventory apiInventory) {
+        JsonNode requestSchema = parseJson(apiInventory.getRequestSchema());
+        JsonNode responseSchema = parseJson(apiInventory.getResponseSchema());
+        String domainTag = DomainTag.resolve(apiInventory.getDomainTag(), apiInventory.getEndpointPath());
+        return new ScenarioEndpointPayload(
+                endpointId(apiInventory.getMethod().name(), apiInventory.getEndpointPath()),
+                apiInventory.getEndpointPath(),
+                apiInventory.getMethod().name(),
+                apiInventory.getSummary(),
+                apiInventory.getSummary(),
+                parameters(requestSchema),
+                authPayload(apiInventory.isAuthRequired()),
+                requestBodySchema(requestSchema),
+                responseSchema,
+                integerArray(responseSchema, "expectedStatusCodes"),
+                integerArray(responseSchema, "errorStatusCodes"),
+                errorCodes(responseSchema),
+                tags(domainTag)
+        );
+    }
+
+    private ScenarioExistingTestCasePayload toScenarioExistingTestCasePayload(TestCase testCase) {
+        String testLevel = testCase.getTestLevel() == null ? null : testCase.getTestLevel().name();
+        return new ScenarioExistingTestCasePayload(
+                String.valueOf(testCase.getId()),
+                testCaseApiId(testCase),
+                testCase.getName(),
+                testCase.getType() == null ? null : testCase.getType().name(),
+                testCase.getDescription(),
+                testLevel,
+                testLevel,
+                parseJson(testCase.getRequestSpec()),
+                parseJson(testCase.getExpectedSpec()),
+                parseJson(testCase.getAssertionSpec()),
+                extractExpectedStatus(testCase.getExpectedSpec())
+        );
+    }
+
+    private ExistingScenarioSummary toExistingScenarioSummary(Scenario scenario) {
+        List<String> stepApiIds = scenarioStepRepository
+                .findByScenarioIdOrderByStepOrderAsc(scenario.getId())
+                .stream()
+                .map(this::scenarioStepEndpointId)
+                .filter(Objects::nonNull)
+                .toList();
+        return new ExistingScenarioSummary(scenario.getName(), stepApiIds);
+    }
+
+    private String scenarioStepEndpointId(ScenarioStep step) {
+        if (step.getApiInventory() != null) {
+            return endpointId(step.getApiInventory().getMethod().name(), step.getApiInventory().getEndpointPath());
+        }
+        if (step.getApiEndpoint() != null) {
+            return endpointId(step.getApiEndpoint().getMethod().name(), step.getApiEndpoint().getPath());
+        }
+        return null;
+    }
+
     private List<TestCase> findTestCasesForAgent(Long appId, List<ApiInventory> inventories) {
         if (appId != null) {
             return testCaseRepository.findByAppIdAndActiveTrueOrderByUpdatedAtDesc(appId);
@@ -327,6 +425,81 @@ public class ApiInventoryService {
                 parseJson(testCase.getExpectedSpec()),
                 parseJson(testCase.getAssertionSpec())
         );
+    }
+
+    private String scenarioProjectId(Long projectId) {
+        return projectId == null ? null : "project-" + projectId;
+    }
+
+    private String endpointId(String method, String path) {
+        return method + ":" + path;
+    }
+
+    private String testCaseApiId(TestCase testCase) {
+        if (testCase.getApiInventory() != null) {
+            return endpointId(testCase.getApiInventory().getMethod().name(), testCase.getApiInventory().getEndpointPath());
+        }
+        return endpointId(testCase.getApiEndpoint().getMethod().name(), testCase.getApiEndpoint().getPath());
+    }
+
+    private ScenarioAuthPayload authPayload(boolean authRequired) {
+        return authRequired
+                ? new ScenarioAuthPayload("bearer", "header")
+                : new ScenarioAuthPayload("none", null);
+    }
+
+    private JsonNode requestBodySchema(JsonNode requestSchema) {
+        if (requestSchema == null || requestSchema.isNull() || requestSchema.isMissingNode()) {
+            return objectMapper.nullNode();
+        }
+        if (requestSchema.isObject() && requestSchema.has("body")) {
+            return requestSchema.get("body");
+        }
+        return requestSchema;
+    }
+
+    private JsonNode parameters(JsonNode requestSchema) {
+        var parameters = objectMapper.createArrayNode();
+        addParameters(parameters, requestSchema, "pathParams", "path");
+        addParameters(parameters, requestSchema, "queryParams", "query");
+        addParameters(parameters, requestSchema, "headers", "header");
+        return parameters;
+    }
+
+    private void addParameters(com.fasterxml.jackson.databind.node.ArrayNode target, JsonNode requestSchema, String sourceField, String location) {
+        if (requestSchema == null || !requestSchema.has(sourceField) || !requestSchema.get(sourceField).isObject()) {
+            return;
+        }
+        requestSchema.get(sourceField).fields().forEachRemaining(entry -> {
+            var parameter = objectMapper.createObjectNode();
+            parameter.put("name", entry.getKey());
+            parameter.put("in", location);
+            parameter.set("schema", entry.getValue());
+            target.add(parameter);
+        });
+    }
+
+    private List<String> tags(String domainTag) {
+        return domainTag == null || domainTag.isBlank() ? List.of() : List.of(domainTag);
+    }
+
+    private Integer extractExpectedStatus(String expectedSpec) {
+        if (expectedSpec == null || expectedSpec.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(expectedSpec);
+            JsonNode statusCode = node.path("statusCode");
+            if (!statusCode.isMissingNode() && statusCode.canConvertToInt()) {
+                return statusCode.intValue();
+            }
+            JsonNode status = node.path("status");
+            if (!status.isMissingNode() && status.canConvertToInt()) {
+                return status.intValue();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private JsonNode parseJson(String value) {

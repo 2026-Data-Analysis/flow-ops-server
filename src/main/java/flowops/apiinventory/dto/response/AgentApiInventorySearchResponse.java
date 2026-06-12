@@ -1,6 +1,11 @@
 package flowops.apiinventory.dto.response;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.ExistingScenarioSummary;
+import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
@@ -41,7 +46,10 @@ public record AgentApiInventorySearchResponse(
         int scenarioCount,
 
         @Schema(description = "저장된 시나리오 목록")
-        List<ScenarioSummaryResponse> scenarios
+        List<ScenarioSummaryResponse> scenarios,
+
+        @Schema(description = "NATURAL_LANGUAGE 모드 시나리오 생성 실행에 바로 사용할 수 있는 요청 필드")
+        AgentNaturalLanguageScenarioRequest naturalLanguageScenarioRequest
 ) {
 
     @Schema(description = "에이전트용 API 명세")
@@ -133,6 +141,25 @@ public record AgentApiInventorySearchResponse(
 
             @Schema(description = "검증 명세")
             JsonNode assertionSpec
+    ) {
+    }
+
+    @Schema(description = "NATURAL_LANGUAGE 모드 시나리오 생성 요청")
+    public record AgentNaturalLanguageScenarioRequest(
+            String mode,
+            @JsonProperty("user_intent")
+            String user_intent,
+            @JsonProperty("api_inventory")
+            ScenarioApiInventoryPayload api_inventory,
+            EnvironmentPayload environment,
+            @JsonProperty("existing_test_cases")
+            List<ScenarioExistingTestCasePayload> existing_test_cases,
+            @JsonProperty("existing_scenarios")
+            List<ExistingScenarioSummary> existing_scenarios,
+            @JsonProperty("max_scenarios")
+            Integer max_scenarios,
+            @JsonProperty("max_steps_per_scenario")
+            Integer max_steps_per_scenario
     ) {
     }
 }
