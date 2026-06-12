@@ -93,6 +93,9 @@ public class ScenarioService {
             API 인벤토리에서 위 흐름에 가장 가까운 endpoint를 찾아 사용해줘.
             정확히 일치하는 endpoint가 없으면 이름, path, method, summary를 기준으로 가장 유사한 API를 선택해줘.
             기존 테스트 케이스와 기존 시나리오에서 커버되지 않은 endpoint를 우선 사용해줘.
+            각 step의 endpoint는 반드시 api_inventory.endpoints[].endpoint_id에 존재하는 METHOD:/path 값을 그대로 사용해줘.
+            createProject, createApp, createScenario, runScenario, getExecution 같은 추상 action name을 endpoint_id로 쓰지 마.
+            적절한 endpoint가 없으면 해당 step은 생략해줘.
 
             정상 흐름 1개, 예외 흐름 1개, 재조회/검증 흐름 1개를 포함해 최대 3개의 시나리오를 생성해줘.
             각 시나리오는 2~8개의 step으로 구성해줘.
@@ -458,8 +461,20 @@ public class ScenarioService {
                 .build());
 
         List<ApiInventory> inventories = inventoriesForDraft(app, request.projectId());
+        int savedStepCount = 0;
         for (ScenarioStepDraftRequest step : draftSteps) {
-            saveDraftStep(scenario, request.projectId(), request.testLevel(), step, inventories);
+            if (saveDraftStep(scenario, request.projectId(), request.testLevel(), step, inventories)) {
+                savedStepCount++;
+            }
+        }
+        if (savedStepCount < 2 && draftSteps.size() >= 2) {
+            log.warn("Dropping orchestrator generated scenario because fewer than two steps resolved. scenarioId={}, requestedStepCount={}, savedStepCount={}",
+                    scenario.getId(),
+                    draftSteps.size(),
+                    savedStepCount);
+            scenarioStepRepository.deleteAll(scenarioStepRepository.findByScenarioIdOrderByStepOrderAsc(scenario.getId()));
+            scenarioRepository.delete(scenario);
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario draft must include at least two resolvable inventory endpoints.");
         }
         List<ScenarioStepResponse> steps = getStepResponses(scenario.getId());
         log.info("Saved orchestrator generated scenario. scenarioId={}, stepCount={}",
@@ -1229,7 +1244,7 @@ public class ScenarioService {
     ) {
         return new ScenarioRecommendationResponse.Step(
                 step.order(),
-                apiIdByEndpointId.get(step.apiId()),
+                recommendationApiId(apiIdByEndpointId, step.apiId()),
                 step.apiId(),
                 stepLabel(step),
                 step.type(),
@@ -1244,6 +1259,14 @@ public class ScenarioService {
         );
     }
 
+    private Long recommendationApiId(Map<String, Long> apiIdByEndpointId, String apiId) {
+        if (apiIdByEndpointId == null || apiId == null || apiId.isBlank()) {
+            return null;
+        }
+        Long exact = apiIdByEndpointId.get(apiId);
+        return exact == null ? apiIdByEndpointId.get(normalizeAlias(apiId)) : exact;
+    }
+
     private String stepLabel(ScenarioStepPayload step) {
         if (step.title() != null && !step.title().isBlank()) {
             return step.title();
@@ -1255,13 +1278,52 @@ public class ScenarioService {
         Map<String, Long> apiIds = new LinkedHashMap<>();
         inventories.forEach(inventory -> {
             apiIds.put(endpointId(inventory.getMethod().name(), inventory.getEndpointPath()), inventory.getId());
+            apiIds.put(endpointId(inventory.getMethod().name(), normalizeDuplicatedPath(inventory.getEndpointPath())), inventory.getId());
             apiIds.put(String.valueOf(inventory.getId()), inventory.getId());
+            putAlias(apiIds, inventory.getOperationId(), inventory.getId());
+            putAlias(apiIds, inventory.getSummary(), inventory.getId());
         });
         endpoints.forEach(endpoint -> {
             apiIds.put(endpointId(endpoint.getMethod().name(), endpoint.getPath()), endpoint.getId());
+            apiIds.put(endpointId(endpoint.getMethod().name(), normalizeDuplicatedPath(endpoint.getPath())), endpoint.getId());
             apiIds.put(String.valueOf(endpoint.getId()), endpoint.getId());
+            putAlias(apiIds, endpoint.getControllerName(), endpoint.getId());
         });
         return apiIds;
+    }
+
+    private void putAlias(Map<String, Long> apiIds, String alias, Long apiId) {
+        if (alias != null && !alias.isBlank() && apiId != null) {
+            apiIds.putIfAbsent(alias, apiId);
+            apiIds.putIfAbsent(normalizeAlias(alias), apiId);
+        }
+    }
+
+    private String normalizeAlias(String value) {
+        return value.replaceAll("([a-z])([A-Z])", "$1 $2")
+                .replaceAll("[^A-Za-z0-9가-힣]+", " ")
+                .trim()
+                .toLowerCase()
+                .replace(" ", "");
+    }
+
+    private String normalizeDuplicatedPath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String trimmed = path.trim();
+        String[] segments = trimmed.split("/");
+        List<String> nonBlankSegments = java.util.Arrays.stream(segments)
+                .filter(segment -> !segment.isBlank())
+                .toList();
+        if (nonBlankSegments.size() < 2 || nonBlankSegments.size() % 2 != 0) {
+            return trimmed;
+        }
+        int half = nonBlankSegments.size() / 2;
+        if (!nonBlankSegments.subList(0, half).equals(nonBlankSegments.subList(half, nonBlankSegments.size()))) {
+            return trimmed;
+        }
+        return "/" + String.join("/", nonBlankSegments.subList(0, half));
     }
 
     private List<String> scenarioSummaries(List<ScenarioPayload> scenarios) {
@@ -1398,7 +1460,7 @@ public class ScenarioService {
                 .toList();
     }
 
-    private void saveDraftStep(
+    private boolean saveDraftStep(
             Scenario scenario,
             Long projectId,
             String scenarioTestLevel,
@@ -1421,10 +1483,19 @@ public class ScenarioService {
                         ),
                         inventories
                 )
-                .orElseThrow(() -> new ApiException(
-                        ErrorCode.INVALID_INPUT,
-                        "SCENARIO_STEP_ENDPOINT_NOT_RESOLVED: 시나리오 step의 endpoint를 API inventory와 매칭할 수 없습니다."
-                ));
+                .orElse(null);
+        if (resolved == null) {
+            log.warn("Dropping unresolved orchestrator scenario step. scenarioId={}, order={}, apiInventoryId={}, apiEndpointId={}, endpointId={}, apiId={}, method={}, path={}",
+                    scenario.getId(),
+                    step.order(),
+                    step.apiInventoryId(),
+                    step.apiEndpointId(),
+                    step.endpointId(),
+                    step.apiId(),
+                    target == null ? step.method() : target.method(),
+                    target == null ? step.path() : target.path());
+            return false;
+        }
 
         ScenarioStep saved = scenarioStepRepository.save(ScenarioStep.builder()
                 .scenario(scenario)
@@ -1449,6 +1520,7 @@ public class ScenarioService {
                 resolved.apiInventoryId(),
                 resolved.apiEndpointId(),
                 resolved.endpointId());
+        return true;
     }
 
     private List<ApiInventory> inventoriesForDraft(App app, Long projectId) {

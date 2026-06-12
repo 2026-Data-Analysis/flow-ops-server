@@ -2,6 +2,7 @@ package flowops.aiintegration.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import flowops.api.domain.entity.ApiEndpoint;
 import flowops.api.domain.entity.ApiMethod;
@@ -110,11 +111,36 @@ public class OrchestratorChatResponseNormalizer {
             Map<String, ResolvedEndpoint> endpoints
     ) {
         List<ResolvedDraft> resolvedDrafts = new ArrayList<>();
+        List<UnresolvedDraft> unresolvedDrafts = new ArrayList<>();
         Map<String, ResolvedEndpoint> selectedEndpoints = new LinkedHashMap<>();
         for (JsonNode draft : data.path("drafts")) {
-            ResolvedEndpoint resolvedEndpoint = resolveDraftEndpoint(app, draft, endpoints);
-            selectedEndpoints.putIfAbsent(selectionKey(resolvedEndpoint), resolvedEndpoint);
-            resolvedDrafts.add(new ResolvedDraft(draft, resolvedEndpoint));
+            try {
+                ResolvedEndpoint resolvedEndpoint = resolveDraftEndpoint(app, draft, endpoints);
+                selectedEndpoints.putIfAbsent(selectionKey(resolvedEndpoint), resolvedEndpoint);
+                resolvedDrafts.add(new ResolvedDraft(draft, resolvedEndpoint));
+            } catch (IllegalArgumentException exception) {
+                unresolvedDrafts.add(new UnresolvedDraft(draft, exception.getMessage()));
+            }
+        }
+
+        log.info("Orchestrator endpoint resolve summary. appId={}, total={}, resolved={}, unresolved={}, unresolvedSamples={}",
+                app.getId(),
+                resolvedDrafts.size() + unresolvedDrafts.size(),
+                resolvedDrafts.size(),
+                unresolvedDrafts.size(),
+                unresolvedDrafts.stream()
+                        .limit(5)
+                        .map(unresolved -> firstText(unresolved.draft(), "endpoint_id", text(unresolved.draft(), "apiId")))
+                        .toList());
+
+        if (resolvedDrafts.isEmpty()) {
+            ObjectNode normalized = objectMapper.createObjectNode();
+            ArrayNode drafts = objectMapper.createArrayNode();
+            unresolvedDrafts.stream()
+                    .map(unresolved -> unresolvedDraftResponse(unresolved.draft(), unresolved.resolveError()))
+                    .forEach(drafts::add);
+            normalized.set("drafts", drafts);
+            return normalized;
         }
 
         TestGeneration generation = testGenerationRepository.save(TestGeneration.builder()
@@ -177,15 +203,27 @@ public class OrchestratorChatResponseNormalizer {
 
         ObjectNode normalized = objectMapper.createObjectNode();
         normalized.put("generationId", generation.getId());
-        normalized.set("drafts", objectMapper.valueToTree(
-                savedDrafts.stream().map(GeneratedTestCaseDraftResponse::from).toList()
-        ));
+        ArrayNode responseDrafts = objectMapper.createArrayNode();
+        savedDrafts.stream()
+                .map(GeneratedTestCaseDraftResponse::from)
+                .map(response -> (JsonNode) objectMapper.valueToTree(response))
+                .forEach(responseDrafts::add);
+        unresolvedDrafts.stream()
+                .map(unresolved -> unresolvedDraftResponse(unresolved.draft(), unresolved.resolveError()))
+                .forEach(responseDrafts::add);
+        normalized.set("drafts", responseDrafts);
         return normalized;
     }
 
     private Map<String, ResolvedEndpoint> endpointsByResponseKey(App app, JsonNode context) {
         Map<String, ResolvedEndpoint> endpoints = new LinkedHashMap<>();
         List<ApiInventory> inventories = apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(app.getId());
+        if (inventories.isEmpty()) {
+            Long projectId = contextProjectId(context);
+            if (projectId != null) {
+                inventories = apiInventoryRepository.findByProjectIdOrderByIdDesc(projectId);
+            }
+        }
         for (ApiInventory inventory : inventories) {
             ResolvedEndpoint endpoint = resolvedInventory(app, inventory);
             registerEndpoint(endpoints, inventory, endpoint);
@@ -200,7 +238,7 @@ public class OrchestratorChatResponseNormalizer {
                 ResolvedEndpoint endpoint = resolveContextEndpoint(app, endpointNode);
                 registerEndpoint(endpoints, endpointNode, endpoint);
             } catch (IllegalArgumentException exception) {
-                log.warn("Skipping unresolved orchestrator context endpoint. appId={}, endpointId={}, method={}, path={}, error={}",
+                log.debug("Skipping unresolved orchestrator context endpoint. appId={}, endpointId={}, method={}, path={}, error={}",
                         app.getId(),
                         firstText(endpointNode, "endpoint_id", text(endpointNode, "apiId")),
                         text(endpointNode, "method"),
@@ -209,6 +247,16 @@ public class OrchestratorChatResponseNormalizer {
             }
         }
         return endpoints;
+    }
+
+    private Long contextProjectId(JsonNode context) {
+        JsonNode inventory = context == null ? null : context.get("api_inventory");
+        Long projectId = parseLongOrNull(text(inventory, "project_id"));
+        if (projectId != null) {
+            return projectId;
+        }
+        JsonNode lookup = context == null ? null : context.get("inventory_lookup");
+        return parseLongOrNull(firstText(lookup, "projectId", text(lookup, "project_id")));
     }
 
     private ResolvedEndpoint resolveContextEndpoint(App app, JsonNode endpointNode) {
@@ -256,8 +304,17 @@ public class OrchestratorChatResponseNormalizer {
         if (target == null) {
             throw unresolvedDraftException(draft, endpoints);
         }
-        return findEndpointByMethodAndPath(app.getId(), target.method(), target.path())
+        EndpointTarget resolvedTarget = target;
+        String normalizedPath = normalizeDuplicatedPath(resolvedTarget.path());
+        return findEndpointByMethodAndPath(app.getId(), resolvedTarget.method(), resolvedTarget.path())
                 .map(endpointByPath -> new ResolvedEndpoint(endpointByPath, null))
+                .or(() -> findEndpointByMethodAndPath(app.getId(), resolvedTarget.method(), normalizedPath)
+                        .map(endpointByPath -> {
+                            log.info("Normalized duplicated endpoint path. original={}, normalized={}",
+                                    resolvedTarget.path(),
+                                    normalizedPath);
+                            return new ResolvedEndpoint(endpointByPath, null);
+                        }))
                 .orElseThrow(() -> unresolvedDraftException(draft, endpoints));
     }
 
@@ -316,11 +373,13 @@ public class OrchestratorChatResponseNormalizer {
         }
         putEndpoint(endpoints, String.valueOf(endpoint.apiEndpoint().getId()), endpoint);
         putEndpoint(endpoints, endpoint.apiEndpoint().getMethod().name() + ":" + endpoint.apiEndpoint().getPath(), endpoint);
+        putEndpoint(endpoints, endpoint.apiEndpoint().getMethod().name() + ":" + normalizeDuplicatedPath(endpoint.apiEndpoint().getPath()), endpoint);
     }
 
     private void registerEndpoint(Map<String, ResolvedEndpoint> endpoints, ApiInventory inventory, ResolvedEndpoint endpoint) {
         putEndpoint(endpoints, String.valueOf(inventory.getId()), endpoint);
         putEndpoint(endpoints, inventory.getMethod().name() + ":" + inventory.getEndpointPath(), endpoint);
+        putEndpoint(endpoints, inventory.getMethod().name() + ":" + normalizeDuplicatedPath(inventory.getEndpointPath()), endpoint);
         if (endpoint.apiEndpoint() != null) {
             putEndpoint(endpoints, String.valueOf(endpoint.apiEndpoint().getId()), endpoint);
         }
@@ -389,10 +448,50 @@ public class OrchestratorChatResponseNormalizer {
             return null;
         }
         try {
-            return new EndpointTarget(ApiMethod.valueOf(method.trim().toUpperCase()), path.trim());
+            return new EndpointTarget(ApiMethod.valueOf(method.trim().toUpperCase()), normalizeDuplicatedPath(path.trim()));
         } catch (IllegalArgumentException exception) {
             return null;
         }
+    }
+
+    private ObjectNode unresolvedDraftResponse(JsonNode draft, String resolveError) {
+        ObjectNode response = draft != null && draft.isObject()
+                ? draft.deepCopy()
+                : objectMapper.createObjectNode();
+        EndpointTarget target = endpointTarget(draft);
+        String endpointId = firstText(draft, "endpoint_id", text(draft, "apiId"));
+        if (target != null) {
+            endpointId = target.method().name() + ":" + target.path();
+            response.put("method", target.method().name());
+            response.put("path", target.path());
+            response.put("endpointName", target.method().name() + " " + target.path());
+        }
+        if (endpointId != null && !endpointId.isBlank()) {
+            response.put("endpointId", endpointId);
+        }
+        response.putNull("apiInventoryId");
+        response.put("unresolved", true);
+        response.put("resolveError", resolveError);
+        return response;
+    }
+
+    private String normalizeDuplicatedPath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String trimmed = path.trim();
+        String[] segments = trimmed.split("/");
+        List<String> nonBlankSegments = java.util.Arrays.stream(segments)
+                .filter(segment -> !segment.isBlank())
+                .toList();
+        if (nonBlankSegments.size() < 2 || nonBlankSegments.size() % 2 != 0) {
+            return trimmed;
+        }
+        int half = nonBlankSegments.size() / 2;
+        if (!nonBlankSegments.subList(0, half).equals(nonBlankSegments.subList(half, nonBlankSegments.size()))) {
+            return trimmed;
+        }
+        return "/" + String.join("/", nonBlankSegments.subList(0, half));
     }
 
     private JsonNode mergeExecutionTarget(JsonNode requestSpec, String executionEndpoint, String executionMethod, ApiEndpoint endpoint) {
@@ -491,5 +590,8 @@ public class OrchestratorChatResponseNormalizer {
     }
 
     private record ResolvedDraft(JsonNode draft, ResolvedEndpoint endpoint) {
+    }
+
+    private record UnresolvedDraft(JsonNode draft, String resolveError) {
     }
 }

@@ -407,7 +407,10 @@ class OrchestratorChatResponseNormalizerTest {
 
         OrchestratorChatResponse normalized = service().normalize(request, response);
 
-        assertThat(normalized).isSameAs(response);
+        assertThat(normalized).isNotSameAs(response);
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("unresolved").asBoolean()).isTrue();
+        assertThat(draft.path("resolveError").asText()).contains("resolvable endpoint");
         verify(testGenerationRepository, never()).save(any(TestGeneration.class));
         verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
     }
@@ -443,7 +446,10 @@ class OrchestratorChatResponseNormalizerTest {
 
         OrchestratorChatResponse normalized = service().normalize(request, response);
 
-        assertThat(normalized).isSameAs(response);
+        assertThat(normalized).isNotSameAs(response);
+        JsonNode draft = normalized.data().agent_results().get(0).data().path("drafts").get(0);
+        assertThat(draft.path("unresolved").asBoolean()).isTrue();
+        assertThat(draft.path("apiId").asText()).isEqualTo("9999");
         verify(testGenerationRepository, never()).save(any(TestGeneration.class));
         verify(draftRepository, never()).save(any(GeneratedTestCaseDraft.class));
     }

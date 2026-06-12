@@ -96,6 +96,18 @@ public class ApiInventoryResolver {
             return byRequestMethodPath;
         }
 
+        Optional<ResolvedApiEndpoint> byNormalizedRequestMethodPath = findInventoryByEndpointId(
+                app,
+                inventories,
+                methodPath(request.method(), normalizeDuplicatedPath(request.path()))
+        );
+        if (byNormalizedRequestMethodPath.isPresent()) {
+            log.info("Normalized duplicated endpoint path. original={}, normalized={}",
+                    request.path(),
+                    normalizeDuplicatedPath(request.path()));
+            return byNormalizedRequestMethodPath;
+        }
+
         Long numericDraftApiId = parseLongOrNull(request.apiId());
         Optional<ResolvedApiEndpoint> byNumericInventoryId = findInventory(inventories, numericDraftApiId)
                 .map(inventory -> fromInventory(app, inventory));
@@ -109,7 +121,18 @@ public class ApiInventoryResolver {
                     .filter(endpoint -> Objects.equals(endpoint.getApp().getId(), app.getId()))
                     .map(endpoint -> fromEndpoint(endpoint, null));
         }
-        return findEndpointByMethodPath(app, methodPath(request.method(), request.path()));
+        Optional<ResolvedApiEndpoint> byEndpointMethodPath = findEndpointByMethodPath(app, methodPath(request.method(), request.path()));
+        if (byEndpointMethodPath.isPresent()) {
+            return byEndpointMethodPath;
+        }
+        Optional<ResolvedApiEndpoint> byNormalizedEndpointMethodPath = findEndpointByMethodPath(
+                app,
+                methodPath(request.method(), normalizeDuplicatedPath(request.path()))
+        );
+        if (byNormalizedEndpointMethodPath.isPresent()) {
+            return byNormalizedEndpointMethodPath;
+        }
+        return fuzzyMatchByActionName(app, inventories, firstNonBlank(request.endpointId(), request.apiId()));
     }
 
     private Optional<ResolvedApiEndpoint> findInventoryByEndpointId(App app, List<ApiInventory> inventories, String endpointId) {
@@ -192,7 +215,7 @@ public class ApiInventoryResolver {
 
     private String normalizeEndpointId(String value) {
         EndpointTarget target = parseEndpointTarget(value);
-        return target == null ? value == null ? null : value.trim() : methodPath(target.method().name(), target.path());
+        return target == null ? value == null ? null : value.trim() : methodPath(target.method().name(), normalizeDuplicatedPath(target.path()));
     }
 
     private EndpointTarget parseEndpointTarget(String value) {
@@ -210,6 +233,62 @@ public class ApiInventoryResolver {
         } catch (IllegalArgumentException exception) {
             return null;
         }
+    }
+
+    private Optional<ResolvedApiEndpoint> fuzzyMatchByActionName(App app, List<ApiInventory> inventories, String actionName) {
+        String normalizedAction = normalizeSearchText(actionName);
+        if (normalizedAction == null) {
+            return Optional.empty();
+        }
+        return inventories.stream()
+                .filter(inventory -> matchesActionName(inventory, normalizedAction))
+                .findFirst()
+                .map(inventory -> fromInventory(app, inventory));
+    }
+
+    private boolean matchesActionName(ApiInventory inventory, String normalizedAction) {
+        return List.of(inventory.getOperationId(), inventory.getSummary(), inventory.getEndpointPath()).stream()
+                .map(this::normalizeSearchText)
+                .filter(Objects::nonNull)
+                .anyMatch(candidate -> candidate.equals(normalizedAction)
+                        || candidate.contains(normalizedAction)
+                        || normalizedAction.contains(candidate));
+    }
+
+    private String normalizeSearchText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        EndpointTarget target = parseEndpointTarget(value);
+        String raw = target == null ? value : target.path();
+        String normalized = raw.replaceAll("([a-z])([A-Z])", "$1 $2")
+                .replaceAll("[^A-Za-z0-9가-힣]+", " ")
+                .trim()
+                .toLowerCase();
+        return normalized.isBlank() ? null : normalized.replace(" ", "");
+    }
+
+    private String normalizeDuplicatedPath(String path) {
+        if (path == null || path.isBlank()) {
+            return path;
+        }
+        String trimmed = path.trim();
+        String[] segments = trimmed.split("/");
+        List<String> nonBlankSegments = java.util.Arrays.stream(segments)
+                .filter(segment -> !segment.isBlank())
+                .toList();
+        if (nonBlankSegments.size() < 2 || nonBlankSegments.size() % 2 != 0) {
+            return trimmed;
+        }
+        int half = nonBlankSegments.size() / 2;
+        if (!nonBlankSegments.subList(0, half).equals(nonBlankSegments.subList(half, nonBlankSegments.size()))) {
+            return trimmed;
+        }
+        return "/" + String.join("/", nonBlankSegments.subList(0, half));
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first == null || first.isBlank() ? second : first;
     }
 
     private Long parseLongOrNull(String value) {

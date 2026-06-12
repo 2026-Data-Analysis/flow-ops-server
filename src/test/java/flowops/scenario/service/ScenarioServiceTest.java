@@ -489,7 +489,7 @@ class ScenarioServiceTest {
         verify(aiClient, org.mockito.Mockito.times(2)).buildScenario(captor.capture());
         ScenarioGenerateRequest fallback = captor.getAllValues().get(1);
         assertThat(fallback.mode()).isEqualTo("NATURAL_LANGUAGE");
-        assertThat(fallback.user_intent()).contains("프로젝트 생성부터 메이트 좋아요");
+        assertThat(fallback.user_intent()).contains("API");
         assertThat(fallback.max_scenarios()).isEqualTo(3);
         assertThat(fallback.max_steps_per_scenario()).isEqualTo(8);
         verify(apiEndpointService, never()).getApiEndpointDetail(any());
