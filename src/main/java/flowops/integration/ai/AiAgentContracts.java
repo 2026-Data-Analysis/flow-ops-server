@@ -294,8 +294,17 @@ public final class AiAgentContracts {
     public record ScenarioGenerateDataPayload(
             List<ScenarioPayload> scenarios,
             @JsonProperty("used_endpoint_ids")
-            List<String> used_endpoint_ids
+            List<String> used_endpoint_ids,
+            @JsonProperty("fallback_used")
+            Boolean fallback_used,
+            @JsonProperty("fallback_reason")
+            String fallback_reason,
+            @JsonProperty("fallback_prompt_type")
+            String fallback_prompt_type
     ) {
+        public ScenarioGenerateDataPayload(List<ScenarioPayload> scenarios, List<String> used_endpoint_ids) {
+            this(scenarios, used_endpoint_ids, null, null, null);
+        }
     }
 
     public record ScenarioPayload(

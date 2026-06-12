@@ -19,3 +19,7 @@ springdoc:
 external:
   ai:
     mock-enabled: ${AI_MOCK_ENABLED:false}
+
+flowops:
+  scenario:
+    demo-fallback-enabled: ${SCENARIO_DEMO_FALLBACK_ENABLED:false}

@@ -185,6 +185,11 @@ public class OrchestratorChatResponseNormalizer {
 
     private Map<String, ResolvedEndpoint> endpointsByResponseKey(App app, JsonNode context) {
         Map<String, ResolvedEndpoint> endpoints = new LinkedHashMap<>();
+        List<ApiInventory> inventories = apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(app.getId());
+        for (ApiInventory inventory : inventories) {
+            ResolvedEndpoint endpoint = resolvedInventory(app, inventory);
+            registerEndpoint(endpoints, inventory, endpoint);
+        }
         JsonNode inventory = context == null ? null : context.get("api_inventory");
         JsonNode endpointNodes = inventory == null ? null : inventory.get("endpoints");
         if (endpointNodes == null || !endpointNodes.isArray()) {
@@ -302,6 +307,14 @@ public class OrchestratorChatResponseNormalizer {
         }
         putEndpoint(endpoints, String.valueOf(endpoint.apiEndpoint().getId()), endpoint);
         putEndpoint(endpoints, endpoint.apiEndpoint().getMethod().name() + ":" + endpoint.apiEndpoint().getPath(), endpoint);
+    }
+
+    private void registerEndpoint(Map<String, ResolvedEndpoint> endpoints, ApiInventory inventory, ResolvedEndpoint endpoint) {
+        putEndpoint(endpoints, String.valueOf(inventory.getId()), endpoint);
+        putEndpoint(endpoints, inventory.getMethod().name() + ":" + inventory.getEndpointPath(), endpoint);
+        if (endpoint.apiEndpoint() != null) {
+            putEndpoint(endpoints, String.valueOf(endpoint.apiEndpoint().getId()), endpoint);
+        }
     }
 
     private ResolvedEndpoint firstEndpoint(Map<String, ResolvedEndpoint> endpoints, String... keys) {

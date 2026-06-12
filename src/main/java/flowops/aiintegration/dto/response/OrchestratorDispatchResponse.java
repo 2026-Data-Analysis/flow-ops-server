@@ -51,8 +51,14 @@ public record OrchestratorDispatchResponse(
 
     public record ScenarioAgentData(
             List<ScenarioResult> scenarios,
-            @JsonProperty("used_endpoint_ids") List<String> usedEndpointIds
+            @JsonProperty("used_endpoint_ids") List<String> usedEndpointIds,
+            @JsonProperty("fallback_used") Boolean fallbackUsed,
+            @JsonProperty("fallback_reason") String fallbackReason,
+            @JsonProperty("fallback_prompt_type") String fallbackPromptType
     ) {
+        public ScenarioAgentData(List<ScenarioResult> scenarios, List<String> usedEndpointIds) {
+            this(scenarios, usedEndpointIds, null, null, null);
+        }
     }
 
     public record ScenarioResult(

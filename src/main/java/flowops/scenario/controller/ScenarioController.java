@@ -6,8 +6,11 @@ import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.scenario.dto.request.CreateScenarioRequest;
 import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
+import flowops.scenario.dto.request.ScenarioDraftSaveRequest;
 import flowops.scenario.dto.request.UpdateScenarioRequest;
 import flowops.scenario.dto.response.ScenarioDetailResponse;
+import flowops.scenario.dto.response.ScenarioDraftBulkSaveResponse;
+import flowops.scenario.dto.response.ScenarioDraftSaveResponse;
 import flowops.scenario.dto.response.ScenarioRecommendationResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
 import flowops.scenario.service.ScenarioService;
@@ -56,6 +59,24 @@ public class ScenarioController {
     @Operation(summary = "시나리오 생성", description = "앱 기준 시나리오와 스텝 목록을 생성합니다.")
     public ApiResponse<ScenarioDetailResponse> createScenario(@Valid @RequestBody CreateScenarioRequest request) {
         return ApiResponse.success(scenarioService.create(request));
+    }
+
+    @PostMapping("/apps/{appId}/scenarios")
+    @Operation(summary = "Save generated scenario draft", description = "Persists an orchestrator-generated scenario draft as a DB scenario.")
+    public ApiResponse<ScenarioDraftSaveResponse> saveGeneratedScenarioDraft(
+            @PathVariable Long appId,
+            @RequestBody ScenarioDraftSaveRequest request
+    ) {
+        return ApiResponse.success(scenarioService.saveDraft(appId, request));
+    }
+
+    @PostMapping("/apps/{appId}/scenarios/bulk")
+    @Operation(summary = "Bulk save generated scenario drafts", description = "Persists multiple orchestrator-generated scenario drafts.")
+    public ApiResponse<ScenarioDraftBulkSaveResponse> saveGeneratedScenarioDrafts(
+            @PathVariable Long appId,
+            @RequestBody List<ScenarioDraftSaveRequest> request
+    ) {
+        return ApiResponse.success(scenarioService.saveDrafts(appId, request));
     }
 
     @GetMapping("/apps/{appId}/scenarios")

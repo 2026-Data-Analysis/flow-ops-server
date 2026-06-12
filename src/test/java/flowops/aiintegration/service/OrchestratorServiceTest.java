@@ -26,14 +26,17 @@ import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
+import flowops.scenario.service.ScenarioService;
 import flowops.testgeneration.repository.GeneratedTestCaseDraftRepository;
 import flowops.testgeneration.repository.TestGenerationApiSelectionRepository;
 import flowops.testgeneration.repository.TestGenerationRepository;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,11 +55,19 @@ class OrchestratorServiceTest {
     @Mock
     private ApiEndpointService apiEndpointService;
     @Mock
+    private ScenarioService scenarioService;
+    @Mock
     private TestGenerationRepository testGenerationRepository;
     @Mock
     private TestGenerationApiSelectionRepository selectionRepository;
     @Mock
     private GeneratedTestCaseDraftRepository draftRepository;
+
+    @BeforeEach
+    void setUp() {
+        Mockito.lenient().when(scenarioService.buildScenarioWithDemoFallback(any(), any()))
+                .thenAnswer(invocation -> aiClient.buildScenario(invocation.getArgument(0)));
+    }
 
     @Test
     void rawLogDispatchesToIncidentAndNormalizesSnakeCaseResponse() throws Exception {
@@ -347,6 +358,7 @@ class OrchestratorServiceTest {
                 scenarioStepRepository,
                 appService,
                 apiEndpointService,
+                scenarioService,
                 testGenerationRepository,
                 selectionRepository,
                 draftRepository,

@@ -12,6 +12,9 @@ import flowops.api.domain.entity.ApiMethod;
 import flowops.api.repository.ApiEndpointRepository;
 import flowops.api.service.ApiEndpointService;
 import flowops.apiinventory.domain.entity.ApiInventory;
+import flowops.apiinventory.service.ApiInventoryResolveRequest;
+import flowops.apiinventory.service.ApiInventoryResolver;
+import flowops.apiinventory.service.ResolvedApiEndpoint;
 import flowops.apiinventory.repository.ApiInventoryRepository;
 import flowops.app.domain.entity.App;
 import flowops.app.service.AppService;
@@ -19,9 +22,11 @@ import flowops.environment.domain.entity.Environment;
 import flowops.environment.repository.EnvironmentRepository;
 import flowops.execution.repository.ExecutionStepLogRepository;
 import flowops.global.config.ExternalServiceProperties;
+import flowops.global.config.ScenarioProperties;
 import flowops.global.exception.ApiException;
 import flowops.global.response.ErrorCode;
 import flowops.integration.ai.AiAgentContracts.EnvironmentPayload;
+import flowops.integration.ai.AiAgentContracts.MetaPayload;
 import flowops.integration.ai.AiAgentContracts.MetadataPayload;
 import flowops.integration.ai.AiAgentContracts.ProjectPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioAuthPayload;
@@ -29,20 +34,26 @@ import flowops.integration.ai.AiAgentContracts.ScenarioApiInventoryPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioEndpointPayload;
 import flowops.integration.ai.AiAgentContracts.ExistingScenarioSummary;
 import flowops.integration.ai.AiAgentContracts.ScenarioExistingTestCasePayload;
+import flowops.integration.ai.AiAgentContracts.ScenarioGenerateDataPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateRequest;
 import flowops.integration.ai.AiAgentContracts.ScenarioGenerateResponse;
 import flowops.integration.ai.AiAgentContracts.ScenarioPayload;
 import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
 import flowops.integration.ai.AiAgentContracts.TestGenerationContext;
 import flowops.scenario.domain.entity.Scenario;
+import flowops.scenario.domain.entity.ScenarioSource;
 import flowops.scenario.domain.entity.ScenarioStep;
 import flowops.scenario.domain.entity.ScenarioType;
 import flowops.scenario.dto.request.CreateScenarioRequest;
 import flowops.scenario.dto.request.RecommendScenarioRequest;
 import flowops.scenario.dto.request.ReorderScenarioStepsRequest;
+import flowops.scenario.dto.request.ScenarioDraftSaveRequest;
+import flowops.scenario.dto.request.ScenarioStepDraftRequest;
 import flowops.scenario.dto.request.ScenarioStepRequest;
 import flowops.scenario.dto.request.UpdateScenarioRequest;
 import flowops.scenario.dto.response.ScenarioDetailResponse;
+import flowops.scenario.dto.response.ScenarioDraftBulkSaveResponse;
+import flowops.scenario.dto.response.ScenarioDraftSaveResponse;
 import flowops.scenario.dto.response.ScenarioRecommendationResponse;
 import flowops.scenario.dto.response.ScenarioStepResponse;
 import flowops.scenario.dto.response.ScenarioSummaryResponse;
@@ -68,6 +79,25 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class ScenarioService {
 
+    private static final String FALLBACK_SCENARIO_PROMPT = """
+            프로젝트 생성부터 메이트 좋아요, 매칭까지 이어지는 핵심 사용자 흐름을 E2E 시나리오로 생성해줘.
+
+            반드시 다음 흐름을 중심으로 시나리오를 만들어줘.
+
+            1. 사용자가 프로젝트를 생성한다.
+            2. 생성된 프로젝트에서 메이트 후보를 조회하거나 선택한다.
+            3. 특정 메이트에게 좋아요를 보낸다.
+            4. 상대방도 좋아요를 누르거나 매칭 조건이 충족되어 매칭이 생성된다.
+            5. 생성된 매칭 정보를 조회한다.
+
+            API 인벤토리에서 위 흐름에 가장 가까운 endpoint를 찾아 사용해줘.
+            정확히 일치하는 endpoint가 없으면 이름, path, method, summary를 기준으로 가장 유사한 API를 선택해줘.
+            기존 테스트 케이스와 기존 시나리오에서 커버되지 않은 endpoint를 우선 사용해줘.
+
+            정상 흐름 1개, 예외 흐름 1개, 재조회/검증 흐름 1개를 포함해 최대 3개의 시나리오를 생성해줘.
+            각 시나리오는 2~8개의 step으로 구성해줘.
+            """;
+
     private final ScenarioRepository scenarioRepository;
     private final ScenarioStepRepository scenarioStepRepository;
     private final AppService appService;
@@ -76,10 +106,12 @@ public class ScenarioService {
     private final ApiInventoryRepository apiInventoryRepository;
     private final AiClient aiClient;
     private final ExternalServiceProperties externalServiceProperties;
+    private final ScenarioProperties scenarioProperties;
     private final ObjectMapper objectMapper;
     private final ExecutionStepLogRepository executionStepLogRepository;
     private final EnvironmentRepository environmentRepository;
     private final TestCaseRepository testCaseRepository;
+    private final ApiInventoryResolver apiInventoryResolver;
 
     @Transactional
     public ScenarioDetailResponse create(CreateScenarioRequest request) {
@@ -235,7 +267,7 @@ public class ScenarioService {
                 aiEndpoints
         );
         logScenarioGenerateRequest(aiRequest);
-        ScenarioGenerateResponse response = aiClient.buildScenario(aiRequest);
+        ScenarioGenerateResponse response = buildScenarioWithDemoFallback(aiRequest, app.getId());
         if (isNoScenariosGenerated(response)) {
             logScenarioFailureDiagnostic(aiRequest, response);
             return List.of();
@@ -304,13 +336,136 @@ public class ScenarioService {
                 aiEndpoints
         );
         logScenarioGenerateRequest(aiRequest);
-        ScenarioGenerateResponse response = aiClient.buildScenario(aiRequest);
+        ScenarioGenerateResponse response = buildScenarioWithDemoFallback(aiRequest, app.getId());
         if (isNoScenariosGenerated(response)) {
             logScenarioFailureDiagnostic(aiRequest, response);
             return response;
         }
         validateScenarioGenerateResponse(response, app.getId(), aiRequest);
         return response;
+    }
+
+    @Transactional(readOnly = true)
+    public ScenarioGenerateResponse buildScenarioWithDemoFallback(ScenarioGenerateRequest request, Long appId) {
+        ScenarioGenerateResponse original = null;
+        String originalReason = null;
+        try {
+            original = aiClient.buildScenario(request);
+            originalReason = fallbackReason(original);
+            if (originalReason == null) {
+                return original;
+            }
+        } catch (RuntimeException exception) {
+            originalReason = exception.getClass().getSimpleName();
+            if (!demoFallbackEnabled()) {
+                throw exception;
+            }
+            original = new ScenarioGenerateResponse(
+                    null,
+                    null,
+                    false,
+                    null,
+                    originalReason,
+                    exception.getMessage(),
+                    null
+            );
+        }
+
+        if (!demoFallbackEnabled()) {
+            return original;
+        }
+
+        log.warn("Scenario generation failed. Trying demo fallback. projectId={}, appId={}, reason={}, traceId={}",
+                request == null ? null : request.project_id(),
+                appId,
+                originalReason,
+                original == null ? null : original.trace_id());
+
+        ScenarioGenerateRequest fallbackRequest = fallbackRequest(request, false);
+        ScenarioGenerateResponse fallback = callFallback(request, fallbackRequest, originalReason, false);
+        if (fallbackReason(fallback) == null) {
+            return markFallback(fallback, originalReason);
+        }
+
+        if (shouldRetryWithoutExistingScenarios(fallback) && scenarioProperties.demoFallbackMaxRetries() >= 2) {
+            log.warn("Scenario fallback retry without existing_scenarios. projectId={}, appId={}",
+                    request == null ? null : request.project_id(),
+                    appId);
+            ScenarioGenerateResponse retry = callFallback(request, fallbackRequest(request, true), originalReason, true);
+            if (fallbackReason(retry) == null) {
+                return markFallback(retry, originalReason);
+            }
+            fallback = retry;
+        }
+
+        ScenarioGenerateResponse mock = mockFallback(request, originalReason);
+        if (mock != null) {
+            return mock;
+        }
+        return fallback == null ? original : fallback;
+    }
+
+    @Transactional
+    public ScenarioDraftSaveResponse saveDraft(Long appId, ScenarioDraftSaveRequest request) {
+        ScenarioDetailResponse detail = saveDraftDetail(appId, request);
+        return new ScenarioDraftSaveResponse(
+                detail.id(),
+                detail.name(),
+                detail.steps() == null ? 0 : detail.steps().size(),
+                true
+        );
+    }
+
+    @Transactional
+    public ScenarioDraftBulkSaveResponse saveDrafts(Long appId, List<ScenarioDraftSaveRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "At least one scenario draft is required.");
+        }
+        List<ScenarioDraftSaveResponse> saved = requests.stream()
+                .map(request -> saveDraft(appId, request))
+                .toList();
+        log.info("Bulk saved orchestrator generated scenarios. savedCount={}", saved.size());
+        return new ScenarioDraftBulkSaveResponse(saved.size(), saved);
+    }
+
+    private ScenarioDetailResponse saveDraftDetail(Long pathAppId, ScenarioDraftSaveRequest request) {
+        if (request == null) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario draft is required.");
+        }
+        Long appId = pathAppId != null ? pathAppId : request.appId();
+        if (appId == null) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "appId is required.");
+        }
+        if (request.name() == null || request.name().isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_INPUT, "Scenario draft name is required.");
+        }
+        App app = appService.getApp(appId);
+        List<ScenarioStepDraftRequest> draftSteps = assignDraftStepOrders(request.steps());
+        log.info("Saving orchestrator generated scenario. projectId={}, appId={}, scenarioName={}, stepCount={}",
+                request.projectId(),
+                app.getId(),
+                request.name(),
+                draftSteps.size());
+
+        Scenario scenario = scenarioRepository.save(Scenario.builder()
+                .app(app)
+                .environment(null)
+                .name(request.name().trim())
+                .description(request.description())
+                .type(parseScenarioType(request.type()))
+                .recommendationReason(recommendationReason(request))
+                .source(ScenarioSource.AI)
+                .build());
+
+        List<ApiInventory> inventories = inventoriesForDraft(app, request.projectId());
+        for (ScenarioStepDraftRequest step : draftSteps) {
+            saveDraftStep(scenario, request.projectId(), request.testLevel(), step, inventories);
+        }
+        List<ScenarioStepResponse> steps = getStepResponses(scenario.getId());
+        log.info("Saved orchestrator generated scenario. scenarioId={}, stepCount={}",
+                scenario.getId(),
+                steps.size());
+        return ScenarioDetailResponse.of(scenario, steps);
     }
 
     private void validateScenarioEndpoints(Long appId, List<ScenarioEndpointPayload> aiEndpoints) {
@@ -340,6 +495,259 @@ public class ScenarioService {
         return response != null
                 && Boolean.FALSE.equals(response.success())
                 && "NO_SCENARIOS_GENERATED".equals(response.error_code());
+    }
+
+    private boolean demoFallbackEnabled() {
+        return scenarioProperties == null || scenarioProperties.demoFallbackEnabled();
+    }
+
+    private String fallbackReason(ScenarioGenerateResponse response) {
+        if (response == null) {
+            return "NO_RESPONSE";
+        }
+        if (Boolean.FALSE.equals(response.success())) {
+            return defaultIfBlank(response.error_code(), "SCENARIO_AGENT_FAILED");
+        }
+        if (response.data() == null || response.data().scenarios() == null || response.data().scenarios().isEmpty()) {
+            return "NO_SCENARIOS_GENERATED";
+        }
+        return null;
+    }
+
+    private ScenarioGenerateRequest fallbackRequest(ScenarioGenerateRequest request, boolean clearExistingScenarios) {
+        return new ScenarioGenerateRequest(
+                request.project_id(),
+                "NATURAL_LANGUAGE",
+                FALLBACK_SCENARIO_PROMPT,
+                request.api_inventory(),
+                request.environment(),
+                request.existing_test_cases(),
+                clearExistingScenarios ? List.of() : request.existing_scenarios(),
+                request.max_scenarios() == null ? 3 : request.max_scenarios(),
+                request.max_steps_per_scenario() == null ? 8 : request.max_steps_per_scenario()
+        );
+    }
+
+    private ScenarioGenerateResponse callFallback(
+            ScenarioGenerateRequest originalRequest,
+            ScenarioGenerateRequest fallbackRequest,
+            String originalReason,
+            boolean withoutExistingScenarios
+    ) {
+        try {
+            int endpointCount = fallbackRequest.api_inventory() == null || fallbackRequest.api_inventory().endpoints() == null
+                    ? 0
+                    : fallbackRequest.api_inventory().endpoints().size();
+            int existingScenarioCount = fallbackRequest.existing_scenarios() == null
+                    ? 0
+                    : fallbackRequest.existing_scenarios().size();
+            log.info("Scenario fallback request prepared. promptType=DEMO_PROJECT_MATE_MATCHING, endpointCount={}, existingScenarioCount={}",
+                    endpointCount,
+                    existingScenarioCount);
+            ScenarioGenerateResponse response = aiClient.buildScenario(fallbackRequest);
+            String reason = fallbackReason(response);
+            if (reason == null) {
+                int scenarioCount = response.data() == null || response.data().scenarios() == null ? 0 : response.data().scenarios().size();
+                int usedEndpointCount = response.data() == null || response.data().used_endpoint_ids() == null ? 0 : response.data().used_endpoint_ids().size();
+                log.info("Scenario fallback succeeded. scenarioCount={}, usedEndpointCount={}, originalTraceId={}, fallbackTraceId={}",
+                        scenarioCount,
+                        usedEndpointCount,
+                        null,
+                        response.trace_id());
+            } else {
+                log.warn("Scenario fallback failed. reason={}, originalTraceId={}, fallbackTraceId={}",
+                        reason,
+                        null,
+                        response == null ? null : response.trace_id());
+            }
+            return response;
+        } catch (RuntimeException exception) {
+            String reason = exception.getClass().getSimpleName();
+            log.warn("Scenario fallback failed. reason={}, originalTraceId={}, fallbackTraceId={}",
+                    reason,
+                    null,
+                    null);
+            return new ScenarioGenerateResponse(
+                    null,
+                    null,
+                    false,
+                    null,
+                    reason,
+                    exception.getMessage(),
+                    null
+            );
+        }
+    }
+
+    private boolean shouldRetryWithoutExistingScenarios(ScenarioGenerateResponse response) {
+        return response != null && "NO_SCENARIOS_GENERATED".equals(response.error_code());
+    }
+
+    private ScenarioGenerateResponse markFallback(ScenarioGenerateResponse response, String reason) {
+        ScenarioGenerateDataPayload data = response.data();
+        ScenarioGenerateDataPayload markedData = new ScenarioGenerateDataPayload(
+                data == null ? List.of() : data.scenarios(),
+                data == null ? List.of() : data.used_endpoint_ids(),
+                true,
+                reason,
+                "DEMO_PROJECT_MATE_MATCHING"
+        );
+        return new ScenarioGenerateResponse(
+                response.requestId(),
+                response.generationId(),
+                true,
+                markedData,
+                null,
+                null,
+                response.trace_id()
+        );
+    }
+
+    private ScenarioGenerateResponse mockFallback(ScenarioGenerateRequest request, String originalReason) {
+        List<ScenarioEndpointPayload> endpoints = request == null || request.api_inventory() == null || request.api_inventory().endpoints() == null
+                ? List.of()
+                : request.api_inventory().endpoints();
+        List<ScenarioEndpointPayload> selected = selectMockFallbackEndpoints(endpoints);
+        if (selected.size() < 2) {
+            return null;
+        }
+        List<ScenarioStepPayload> steps = new ArrayList<>();
+        for (int index = 0; index < selected.size(); index++) {
+            ScenarioEndpointPayload endpoint = selected.get(index);
+            steps.add(new ScenarioStepPayload(
+                    "fallback-step-" + (index + 1),
+                    "fallback_" + (index + 1),
+                    index + 1,
+                    objectMapper.createArrayNode(),
+                    endpoint.endpoint_id(),
+                    endpoint.endpoint_id(),
+                    mockStepName(index),
+                    mockStepName(index),
+                    endpoint.summary(),
+                    "HAPPY_PATH",
+                    "SANITY",
+                    "USER",
+                    null,
+                    null,
+                    endpoint.path(),
+                    endpoint.method(),
+                    mockRequestSpec(endpoint),
+                    mockExpectedSpec(),
+                    mockAssertionSpec(),
+                    false,
+                    objectMapper.createObjectNode(),
+                    objectMapper.createObjectNode(),
+                    200,
+                    List.of("status code is successful")
+            ));
+        }
+        ScenarioPayload scenario = new ScenarioPayload(
+                "demo-fallback-" + UUID.randomUUID(),
+                "프로젝트 생성-메이트 좋아요-매칭 데모 흐름",
+                "기본 요청에서 시나리오 생성에 실패하여, 데모용 추천 흐름으로 대체 생성했습니다.",
+                "HAPPY_PATH",
+                "SANITY",
+                steps,
+                new MetaPayload(
+                        "기본 요청에서 시나리오 생성에 실패하여, 데모용 추천 흐름으로 대체 생성했습니다.",
+                        null,
+                        "SANITY",
+                        "MEDIUM"
+                )
+        );
+        List<String> selectedEndpointIds = selected.stream()
+                .map(ScenarioEndpointPayload::endpoint_id)
+                .filter(Objects::nonNull)
+                .toList();
+        log.info("Scenario mock fallback generated. scenarioCount={}, selectedEndpointIds={}",
+                1,
+                selectedEndpointIds);
+        return new ScenarioGenerateResponse(
+                null,
+                null,
+                true,
+                new ScenarioGenerateDataPayload(
+                        List.of(scenario),
+                        selectedEndpointIds,
+                        true,
+                        originalReason,
+                        "DEMO_PROJECT_MATE_MATCHING"
+                ),
+                null,
+                null,
+                null
+        );
+    }
+
+    private List<ScenarioEndpointPayload> selectMockFallbackEndpoints(List<ScenarioEndpointPayload> endpoints) {
+        List<ScenarioEndpointPayload> selected = new ArrayList<>();
+        addIfPresent(selected, bestEndpoint(endpoints, List.of("project", "projects", "프로젝트", "생성", "create"), List.of("POST")));
+        addIfPresent(selected, bestEndpoint(endpoints, List.of("mate", "mates", "메이트", "like", "likes", "좋아요", "favorite"), List.of("GET", "POST")));
+        addIfPresent(selected, bestEndpoint(endpoints, List.of("match", "matching", "matches", "매칭"), List.of("POST", "GET")));
+        return selected.stream().distinct().limit(3).toList();
+    }
+
+    private ScenarioEndpointPayload bestEndpoint(List<ScenarioEndpointPayload> endpoints, List<String> keywords, List<String> methods) {
+        return endpoints.stream()
+                .filter(endpoint -> methods.isEmpty() || methods.contains(safeUpper(endpoint.method())))
+                .max(Comparator.comparingInt(endpoint -> endpointScore(endpoint, keywords)))
+                .filter(endpoint -> endpointScore(endpoint, keywords) > 0)
+                .orElse(null);
+    }
+
+    private int endpointScore(ScenarioEndpointPayload endpoint, List<String> keywords) {
+        String haystack = "%s %s %s %s".formatted(
+                endpoint.endpoint_id(),
+                endpoint.method(),
+                endpoint.path(),
+                endpoint.summary()
+        ).toLowerCase();
+        int score = 0;
+        for (String keyword : keywords) {
+            if (haystack.contains(keyword.toLowerCase())) {
+                score++;
+            }
+        }
+        return score;
+    }
+
+    private void addIfPresent(List<ScenarioEndpointPayload> endpoints, ScenarioEndpointPayload endpoint) {
+        if (endpoint != null && !endpoints.contains(endpoint)) {
+            endpoints.add(endpoint);
+        }
+    }
+
+    private ObjectNode mockRequestSpec(ScenarioEndpointPayload endpoint) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("method", endpoint.method());
+        node.put("path", endpoint.path());
+        node.set("body", objectMapper.createObjectNode());
+        node.set("queryParams", objectMapper.createObjectNode());
+        return node;
+    }
+
+    private ObjectNode mockExpectedSpec() {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("statusCode", 200);
+        return node;
+    }
+
+    private ObjectNode mockAssertionSpec() {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.set("bodyContains", objectMapper.valueToTree(List.of("success")));
+        return node;
+    }
+
+    private String mockStepName(int index) {
+        return switch (index) {
+            case 0 -> "프로젝트 생성";
+            case 1 -> "메이트 좋아요";
+            default -> "매칭 조회";
+        };
+    }
+
+    private String safeUpper(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
     }
 
     private void logScenarioGenerateRequest(ScenarioGenerateRequest request) {
@@ -943,6 +1351,236 @@ public class ScenarioService {
                 && !(value.isTextual() && value.asText().isBlank())
                 ? value
                 : objectMapper.nullNode();
+    }
+
+    private List<ScenarioStepDraftRequest> assignDraftStepOrders(List<ScenarioStepDraftRequest> steps) {
+        if (steps == null || steps.isEmpty()) {
+            return List.of();
+        }
+        List<ScenarioStepDraftRequest> normalized = new ArrayList<>();
+        for (int index = 0; index < steps.size(); index++) {
+            ScenarioStepDraftRequest step = steps.get(index);
+            int order = step.order() == null ? index + 1 : step.order();
+            normalized.add(new ScenarioStepDraftRequest(
+                    order,
+                    step.apiInventoryId(),
+                    step.apiEndpointId(),
+                    step.endpointId(),
+                    step.apiId(),
+                    step.method(),
+                    step.path(),
+                    step.name(),
+                    step.title(),
+                    step.description(),
+                    step.requestSpec(),
+                    step.expectedSpec(),
+                    step.assertionSpec(),
+                    step.staticPayload(),
+                    step.staticParams(),
+                    step.expectedStatusCode(),
+                    step.expectedAssertions(),
+                    step.chainedVariables()
+            ));
+        }
+        return normalized.stream()
+                .sorted(Comparator.comparing(ScenarioStepDraftRequest::order))
+                .toList();
+    }
+
+    private void saveDraftStep(
+            Scenario scenario,
+            Long projectId,
+            String scenarioTestLevel,
+            ScenarioStepDraftRequest step,
+            List<ApiInventory> inventories
+    ) {
+        JsonNode requestSpec = normalizedRequestSpec(step);
+        EndpointTarget target = endpointTarget(step, requestSpec);
+        ResolvedApiEndpoint resolved = apiInventoryResolver.resolve(
+                        scenario.getApp(),
+                        new ApiInventoryResolveRequest(
+                                projectId,
+                                scenario.getApp().getId(),
+                                step.apiInventoryId(),
+                                step.apiEndpointId(),
+                                firstNonNull(step.endpointId(), step.apiId()),
+                                step.apiId(),
+                                target == null ? null : target.method(),
+                                target == null ? null : target.path()
+                        ),
+                        inventories
+                )
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.INVALID_INPUT,
+                        "SCENARIO_STEP_ENDPOINT_NOT_RESOLVED: 시나리오 step의 endpoint를 API inventory와 매칭할 수 없습니다."
+                ));
+
+        ScenarioStep saved = scenarioStepRepository.save(ScenarioStep.builder()
+                .scenario(scenario)
+                .stepOrder(step.order())
+                .apiEndpoint(resolved.apiEndpoint())
+                .apiInventory(resolved.apiInventory())
+                .label(stepName(step))
+                .chainedVariables(jsonString(step.chainedVariables()))
+                .type(stepType(step, scenario.getType()))
+                .testLevel(scenarioTestLevel)
+                .requestSpec(jsonString(requestSpec))
+                .expectedSpec(jsonString(normalizedExpectedSpec(step)))
+                .assertionSpec(jsonString(normalizedAssertionSpec(step)))
+                .duplicate(false)
+                .requestConfig(jsonString(requestSpec))
+                .validationRules(validationRules(normalizedExpectedSpec(step), normalizedAssertionSpec(step)))
+                .build());
+        log.info("Saved orchestrator generated scenario step. scenarioId={}, stepId={}, order={}, apiInventoryId={}, apiEndpointId={}, endpointId={}",
+                scenario.getId(),
+                saved.getId(),
+                saved.getStepOrder(),
+                resolved.apiInventoryId(),
+                resolved.apiEndpointId(),
+                resolved.endpointId());
+    }
+
+    private List<ApiInventory> inventoriesForDraft(App app, Long projectId) {
+        if (projectId != null) {
+            List<ApiInventory> inventories = apiInventoryRepository.findByProjectIdOrderByIdDesc(projectId);
+            if (!inventories.isEmpty()) {
+                return inventories;
+            }
+        }
+        return apiInventoryRepository.findByRepositoryInfoAppIdOrderByIdDesc(app.getId());
+    }
+
+    private ScenarioType parseScenarioType(String value) {
+        if (value == null || value.isBlank()) {
+            return ScenarioType.HAPPY_PATH;
+        }
+        try {
+            return ScenarioType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            return ScenarioType.HAPPY_PATH;
+        }
+    }
+
+    private String recommendationReason(ScenarioDraftSaveRequest request) {
+        if (request.meta() != null && request.meta().isObject()) {
+            String rationale = text(request.meta(), "rationale");
+            if (rationale != null && !rationale.isBlank()) {
+                return rationale;
+            }
+        }
+        return request.description();
+    }
+
+    private String stepName(ScenarioStepDraftRequest step) {
+        String name = firstNonBlank(step.name(), step.title());
+        return name == null || name.isBlank() ? "Step " + step.order() : name;
+    }
+
+    private String stepType(ScenarioStepDraftRequest step, ScenarioType scenarioType) {
+        String type = firstNonBlank(text(step.requestSpec(), "type"), text(step.assertionSpec(), "type"));
+        return type == null || type.isBlank() ? scenarioType.name() : type;
+    }
+
+    private JsonNode normalizedRequestSpec(ScenarioStepDraftRequest step) {
+        if (isMeaningful(step.requestSpec())) {
+            return step.requestSpec();
+        }
+        ObjectNode request = objectMapper.createObjectNode();
+        EndpointTarget target = endpointTarget(step, null);
+        if (target != null) {
+            request.put("method", target.method());
+            request.put("path", target.path());
+        }
+        if (isMeaningful(step.staticPayload())) {
+            request.set("body", step.staticPayload());
+        }
+        if (isMeaningful(step.staticParams())) {
+            request.set("pathParams", step.staticParams());
+        }
+        if (!request.has("queryParams")) {
+            request.set("queryParams", objectMapper.createObjectNode());
+        }
+        return request;
+    }
+
+    private JsonNode normalizedExpectedSpec(ScenarioStepDraftRequest step) {
+        if (isMeaningful(step.expectedSpec())) {
+            return step.expectedSpec();
+        }
+        ObjectNode expected = objectMapper.createObjectNode();
+        if (step.expectedStatusCode() != null) {
+            expected.put("statusCode", step.expectedStatusCode());
+        }
+        return expected;
+    }
+
+    private JsonNode normalizedAssertionSpec(ScenarioStepDraftRequest step) {
+        if (isMeaningful(step.assertionSpec())) {
+            return step.assertionSpec();
+        }
+        ObjectNode assertion = objectMapper.createObjectNode();
+        if (step.expectedAssertions() != null && !step.expectedAssertions().isEmpty()) {
+            assertion.set("bodyContains", objectMapper.valueToTree(step.expectedAssertions()));
+        }
+        return assertion;
+    }
+
+    private EndpointTarget endpointTarget(ScenarioStepDraftRequest step, JsonNode requestSpec) {
+        EndpointTarget explicit = endpointTarget(firstNonBlank(step.endpointId(), step.apiId()));
+        if (explicit != null) {
+            return explicit;
+        }
+        if (step.method() != null && step.path() != null) {
+            return new EndpointTarget(step.method().trim().toUpperCase(), step.path().trim());
+        }
+        JsonNode node = requestSpec == null ? step.requestSpec() : requestSpec;
+        String method = firstNonBlank(text(node, "method"), text(node, "httpMethod"));
+        String path = firstNonBlank(text(node, "path"), text(node, "endpoint"));
+        if (method == null || path == null) {
+            return null;
+        }
+        return new EndpointTarget(method.trim().toUpperCase(), path.trim());
+    }
+
+    private EndpointTarget endpointTarget(String endpointId) {
+        if (endpointId == null || endpointId.isBlank()) {
+            return null;
+        }
+        int separator = endpointId.indexOf(':');
+        if (separator <= 0 || separator == endpointId.length() - 1) {
+            return null;
+        }
+        return new EndpointTarget(
+                endpointId.substring(0, separator).trim().toUpperCase(),
+                endpointId.substring(separator + 1).trim()
+        );
+    }
+
+    private boolean isMeaningful(JsonNode value) {
+        return value != null
+                && !value.isNull()
+                && !value.isMissingNode()
+                && !(value.isObject() && value.isEmpty())
+                && !(value.isArray() && value.isEmpty())
+                && !(value.isTextual() && value.asText().isBlank());
+    }
+
+    private String text(JsonNode node, String field) {
+        if (node == null || !node.isObject() || !node.has(field) || node.get(field).isNull()) {
+            return null;
+        }
+        return node.get(field).asText();
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first == null || first.isBlank() ? second : first;
+    }
+
+    private String firstNonNull(String first, String second) {
+        return first == null ? second : first;
+    }
+
+    private record EndpointTarget(String method, String path) {
     }
 
     @Transactional

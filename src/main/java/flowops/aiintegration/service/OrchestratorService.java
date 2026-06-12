@@ -45,6 +45,7 @@ import flowops.integration.ai.AiAgentContracts.ScenarioStepPayload;
 import flowops.scenario.domain.entity.Scenario;
 import flowops.scenario.repository.ScenarioRepository;
 import flowops.scenario.repository.ScenarioStepRepository;
+import flowops.scenario.service.ScenarioService;
 import flowops.integration.ai.AiAgentContracts.TestCaseApiPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseDraftPayload;
 import flowops.integration.ai.AiAgentContracts.TestCaseGeneratorRequest;
@@ -80,6 +81,7 @@ public class OrchestratorService {
     private final ScenarioStepRepository scenarioStepRepository;
     private final AppService appService;
     private final ApiEndpointService apiEndpointService;
+    private final ScenarioService scenarioService;
     private final TestGenerationRepository testGenerationRepository;
     private final TestGenerationApiSelectionRepository selectionRepository;
     private final GeneratedTestCaseDraftRepository draftRepository;
@@ -556,7 +558,7 @@ public class OrchestratorService {
                 intOrNull(ctx, "max_steps_per_scenario")
         );
 
-        ScenarioGenerateResponse res = aiClient.buildScenario(aiReq);
+        ScenarioGenerateResponse res = scenarioService.buildScenarioWithDemoFallback(aiReq, parseLongOrNull(projectId));
 
         if (usesPromptAwareRouting()) {
             boolean success = res == null || res.success() == null || res.success();
@@ -675,7 +677,13 @@ public class OrchestratorService {
                     .distinct()
                     .toList()
                     : data.used_endpoint_ids();
-            return new ScenarioAgentData(scenarios, usedEndpointIds);
+            return new ScenarioAgentData(
+                    scenarios,
+                    usedEndpointIds,
+                    data == null ? null : data.fallback_used(),
+                    data == null ? null : data.fallback_reason(),
+                    data == null ? null : data.fallback_prompt_type()
+            );
         } catch (Exception exception) {
             log.warn("Failed to normalize orchestrator scenario result. error={}", exception.getMessage());
             return new ScenarioAgentData(List.of(), List.of());
